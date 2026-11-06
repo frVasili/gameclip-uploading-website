@@ -52,11 +52,24 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
 
 ## Working on it
 - Dev server: `ADMIN_PASSWORD=devpassword DATA_DIR=/tmp/clips-dev PORT=18090 HOST=127.0.0.1 node server/index.js`
-  (ffmpeg on PATH). Front-end files are read from disk on each request; restart for server changes.
-- Run `npm test` before committing. Use `node --check` for quick syntax checks.
-- Before heavy work (big encodes, many test exports), check that the machine isn't busy.
-- Commits: never put a personal email address in commits; use the GitHub noreply address. Commits written
-  by an AI agent end with a `Co-Authored-By:` trailer naming the model (the project is openly AI-coded; see
-  README "Credits" and AUTHORS.md).
-- Before making anything public, grep the tree *and history* for personal data (names, hostnames, domains,
-  IPs, paths, tokens, emails). History can't be cleaned after a push: use a fresh repo instead.
+  (ffmpeg on PATH). Pages and the asset version are cached at startup: restart after changing anything in web/ or server/.
+- Run `npm test` before committing (unit tests + end-to-end test; the e2e upload/export part needs ffmpeg).
+  Use `node --check` for quick syntax checks. Before heavy work (big encodes, many test exports), check the machine isn't busy.
+- Keep `docs/API.md`, `.env.example` and the README in sync with code changes.
+- Releasing: push to `main` -> GitHub Actions runs the tests, then builds and publishes
+  `ghcr.io/frvasili/gameclip-uploading-website:latest` (amd64 + arm64). Deployments that pull `:latest` pick it up.
+
+## Git identity and privacy (strict)
+- **Never put a personal email address anywhere in this repo**: not in commits (author or committer), tags, files,
+  commit messages, issues or PRs. Commit as `frVasili <64988759+frVasili@users.noreply.github.com>` (GitHub noreply).
+  The repo's local git config sets that identity; never override it (`-c user.email=...`, env vars, other configs).
+- The only other allowed commit email is `noreply@anthropic.com` (Claude, as author or `Co-Authored-By`).
+- Before every push: `git log --format='%ae %ce' origin/main..HEAD | sort -u` must show only those noreply addresses.
+  A local `pre-push` hook enforces this when present (it's in `.git/hooks`, not tracked).
+- If a personal address ever gets pushed, rewriting history is not enough (GitHub keeps old commits reachable):
+  stop and ask the owner; the fix is deleting and recreating the GitHub repo.
+- The repo is public. Nothing about a specific deployment goes into tracked files: hostnames, domains, tailnet
+  names, IPs, filesystem paths, account ids, tokens, people's names. That belongs in git-ignored `local/`.
+  Before pushing docs or examples, grep the diff for such things.
+- Commits written by an AI agent end with a `Co-Authored-By:` trailer naming the model. The project is openly
+  AI-coded (README "Credits", AUTHORS.md); keep that credit.
