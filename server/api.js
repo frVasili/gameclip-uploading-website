@@ -9,7 +9,7 @@ import * as store from './store.js';
 import * as auth from './auth.js';
 import * as uploads from './uploads.js';
 import { json, sendFile, readBody } from './http.js';
-import { probe, prepare, render, plan, thumbnail, PRESETS, LEVELING, LOUDNESS, measureTrack, makeLeveledPreview, gpu, detectGpu } from './media.js';
+import { probe, prepare, render, plan, thumbnail, PRESETS, LEVELING, LOUDNESS, measureTrack, makeLeveledPreview, gpu, detectGpu, maxOf } from './media.js';
 
 let FFMPEG_VERSION = 'unknown';
 try { FFMPEG_VERSION = execFileSync(process.env.FFMPEG || 'ffmpeg', ['-version']).toString().split('\n')[0].replace(/ Copyright.*/, ''); } catch { /* unknown */ }
@@ -80,7 +80,7 @@ function checkOldTracks(s) {
     const seen = new Map();
     markTracks(s, s.info.audio.map((a) => {
       const peaks = JSON.parse(fs.readFileSync(path.join(store.sourceDir(s.id), `peaks-${a.n}.json`), 'utf8')).peaks;
-      const silent = Math.max(0, ...peaks) <= 3, key = peaks.join(',');
+      const silent = maxOf(peaks) <= 3, key = peaks.join(',');
       const sameAs = !silent && seen.has(key) ? seen.get(key) : null;
       if (!seen.has(key)) seen.set(key, a.n);
       return { n: a.n, silent, sameAs };

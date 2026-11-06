@@ -124,57 +124,75 @@ export async function probe(file) {
 }
 
 // Editor files: a browser-playable video without audio, each audio track separately, and waveform peaks.
-// One ffmpeg run reads the upload once and writes everything (it used to be 1 + 2 per track runs, each
-// reading the whole file). Videos browsers can't play (e.g. HEVC from OBS) become a 720p H.264 preview:
-// on the GPU when there is one (decoding HEVC on the CPU alone takes about half the time), else the CPU.
+// Two ffmpeg runs side by side: one makes the video preview, one does all audio tracks (it used to be
+// 1 + 2 per track runs one after another, each reading the whole file; ffmpeg 6 handles all outputs of one
+// run on one thread, so video and audio in one run would add up). Videos browsers can't play (e.g. HEVC from
+// OBS) become a 720p H.264 preview, with help from the GPU if there is one (PREVIEW_HW).
 // Returns per-track facts for the editor: { audio: [{ n, silent, sameAs }] } where sameAs is the n of an
 // earlier track with exactly the same decoded sound (OBS can write the same mix to several tracks).
 export async function prepare(src, dir, info, onProgress = () => {}) {
   const playable = info.vcodec === 'h264' && info.pixFmt === 'yuv420p' && info.height <= 1440;
   const outH = even(Math.min(720, info.height)), outW = even(outH * info.width / info.height);
-  const video = (mode) => mode === 'copy' ? ['-map', '0:v:0', '-c:v', 'copy']
-    : mode === 'gpu' ? ['-map', '0:v:0', '-vf', `scale_vaapi=w=${outW}:h=${outH}:format=nv12`, '-c:v', 'h264_vaapi', '-rc_mode', 'CQP', '-qp', '26', '-g', '30']
-      : ['-map', '0:v:0', '-vf', `scale=${outW}:${outH}:flags=bicubic,format=yuv420p`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '30', '-threads', THREADS];
   const pcm = (n) => path.join(dir, `pcm-${n}.tmp`);
-  const once = (mode) => {
-    // 'gpu': decode, scale and encode on the GPU. 'hybrid': the GPU decodes (ffmpeg quietly decodes on the CPU
-    // if the GPU can't handle the codec), the CPU scales and encodes.
+  const head = ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats'];
+  const prog = { v: 0, a: info.audio.length ? 0 : 1 };
+  const report = () => onProgress(Math.min(prog.v, prog.a) * 0.97);
+
+  // 'gpu': decode, scale and encode on the GPU. 'hybrid': the GPU decodes (ffmpeg quietly decodes on the CPU
+  // if the GPU can't handle the codec), the CPU scales and encodes. 'cpu', or 'copy' when it already plays.
+  const makeVideo = (mode) => {
     const hw = mode === 'gpu' ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-hwaccel', 'vaapi', '-hwaccel_device', 'va', '-hwaccel_output_format', 'vaapi']
       : mode === 'hybrid' ? ['-hwaccel', 'vaapi', '-hwaccel_device', gpu.device] : [];
-    const outs = [...video(mode), '-an', '-sn', '-dn', '-movflags', '+faststart', path.join(dir, 'preview.mp4')];
-    for (const a of info.audio) {
-      outs.push('-map', `0:a:${a.n}`, '-vn', '-sn', '-dn', '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-movflags', '+faststart', path.join(dir, `audio-${a.n}.m4a`));
-      outs.push('-map', `0:a:${a.n}`, '-vn', '-sn', '-dn', '-ac', '1', '-ar', '8000', '-f', 's16le', pcm(a.n));   // for the waveform
-    }
-    return run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', ...hw, ...SAFE, '-i', src, ...outs],
-      { duration: info.duration, onProgress: (f) => onProgress(f * 0.97) });
+    const v = mode === 'copy' ? ['-c:v', 'copy']
+      : mode === 'gpu' ? ['-vf', `scale_vaapi=w=${outW}:h=${outH}:format=nv12`, '-c:v', 'h264_vaapi', '-rc_mode', 'CQP', '-qp', '26', '-g', '30']
+        : ['-vf', `scale=${outW}:${outH}:flags=bicubic,format=yuv420p`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '30', '-threads', THREADS];
+    return run(FFMPEG, [...head, ...hw, ...SAFE, '-i', src, '-map', '0:v:0', ...v, '-an', '-sn', '-dn', '-movflags', '+faststart', path.join(dir, 'preview.mp4')],
+      { duration: info.duration, onProgress: (f) => { prog.v = f; report(); } });
   };
-  try {
+  const video = async () => {
+    if (!playable && config.previewHw !== 'off') await recheckGpu();
     const t0 = Date.now();
     let mode = playable ? 'copy' : gpu.available && config.previewHw !== 'off' ? (config.previewHw === 'full' ? 'gpu' : 'hybrid') : 'cpu';
-    try { await once(mode); } catch (e) {
+    try { await makeVideo(mode); } catch (e) {
       if (mode === 'copy' || mode === 'cpu') throw e;
       console.error(`GPU preview (${mode}) failed, using the CPU:`, e.message);   // e.g. a codec this GPU can't decode
-      mode = 'cpu'; await once(mode);
+      mode = 'cpu'; await makeVideo(mode);
     }
-    console.log(`prepared ${path.basename(dir)}: ${Math.round(info.duration)} s of ${info.vcodec} ${info.width}x${info.height}, ${info.audio.length} audio track(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s (${mode})`);
+    return `video ${((Date.now() - t0) / 1000).toFixed(1)} s (${mode})`;
+  };
+  const audio = async () => {
+    if (!info.audio.length) return 'no audio';
+    const t0 = Date.now(), outs = [];
+    for (const a of info.audio) {
+      outs.push('-map', `0:a:${a.n}`, '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-movflags', '+faststart', path.join(dir, `audio-${a.n}.m4a`));
+      outs.push('-map', `0:a:${a.n}`, '-ac', '1', '-ar', '8000', '-f', 's16le', pcm(a.n));   // for the waveform
+    }
+    await run(FFMPEG, [...head, ...SAFE, '-i', src, '-vn', '-sn', '-dn', ...outs], { duration: info.duration, onProgress: (f) => { prog.a = f; report(); } });
+    return `audio ${((Date.now() - t0) / 1000).toFixed(1)} s`;
+  };
+
+  try {
+    const t0 = Date.now();
+    const times = await Promise.all([video(), audio()]);
+    console.log(`prepared ${path.basename(dir)}: ${Math.round(info.duration)} s of ${info.vcodec} ${info.width}x${info.height}, ${info.audio.length} audio track(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s: ${times.join(', ')}`);
 
     const seen = new Map();   // hash of the decoded sound -> first track with it
-    const audio = info.audio.map((a) => {
+    const facts = info.audio.map((a) => {
       const buf = fs.readFileSync(pcm(a.n));
-      const peaks = writePeaks(buf, path.join(dir, `peaks-${a.n}.json`));
-      const silent = Math.max(0, ...peaks) <= 3;   // nothing above about -70 dBFS
+      const silent = maxOf(writePeaks(buf, path.join(dir, `peaks-${a.n}.json`))) <= 3;   // nothing above about -70 dBFS
       const hash = crypto.createHash('sha256').update(buf).digest('hex');
-      const sameAs = !silent && buf.length && seen.has(hash) ? seen.get(hash) : null;
+      const sameAs = !silent && seen.has(hash) ? seen.get(hash) : null;
       if (!seen.has(hash)) seen.set(hash, a.n);
       return { n: a.n, silent, sameAs };
     });
     onProgress(1);
-    return { audio };
+    return { audio: facts };
   } finally {
     for (const a of info.audio) fs.rmSync(pcm(a.n), { force: true });
   }
 }
+// largest value without spreading (a long recording has millions of peaks)
+export const maxOf = (xs) => { let m = 0; for (const x of xs) if (x > m) m = x; return m; };
 
 // Waveform for the editor: 100 peaks per second, 0-255, from 8 kHz mono 16-bit PCM. Returns the peaks.
 function writePeaks(pcm, outFile) {
@@ -267,7 +285,24 @@ export function filters(info, edit, p, loud = null, gpu = false) {
 // Renders the clip. onProgress(0..1). Returns { bytes, plan }.
 // Hardware encoding (VAAPI). Checked once at startup with a tiny test encode.
 export const gpu = { device: config.vaapiDevice, available: false, error: config.vaapiDevice ? 'not checked yet' : 'not configured (VAAPI_DEVICE)' };
-export async function detectGpu() {
+// The test encode sometimes fails right after the container starts, so: a few tries at startup, and when it's
+// still off, another check before a job that could use it (at most every 10 minutes).
+export async function detectGpu(tries = 3) {
+  for (let i = 0; i < tries; i++) {
+    await testGpu();
+    if (gpu.available || !config.vaapiDevice) break;
+    if (i < tries - 1) await new Promise((r) => setTimeout(r, 3000));
+  }
+  return gpu;
+}
+let lastGpuCheck = 0;
+async function recheckGpu() {
+  if (gpu.available || !config.vaapiDevice || Date.now() - lastGpuCheck < 600e3) return;
+  await detectGpu(1);
+  if (gpu.available) console.log(`GPU encoding available now (${gpu.device})`);
+}
+async function testGpu() {
+  lastGpuCheck = Date.now();
   if (!config.vaapiDevice) return gpu;
   // verbose, so libva says which driver it tried and why it failed
   const r = await new Promise((resolve) => {
@@ -287,6 +322,7 @@ export async function detectGpu() {
 
 export async function render(src, info, edit, outFile, tmpDir, onProgress = () => {}) {
   const p = plan(info, edit);
+  if (edit.gpu) await recheckGpu();
   const useGpu = !!edit.gpu && gpu.available;
   let loud = null;
   if (edit.normalize !== false && p.activeTracks.length) {
