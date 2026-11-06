@@ -106,13 +106,19 @@ async function upload(c, file, name) {
   const buf = fs.readFileSync(file);
   const s = await c('/api/uploads', { method: 'POST', body: { name, size: buf.length } });
   assert.equal(s.status, 201, s.text);
-  let off = 0;
-  while (off < buf.length) {
-    const piece = buf.subarray(off, off + s.json.chunkSize);
-    const r = await c(`/api/uploads/${s.json.id}?offset=${off}`, { method: 'PUT', raw: piece });
-    assert.equal(r.status, 200, r.text);
-    off = r.json.received;
+  // pieces in any order, two at a time, one sent twice (a retry)
+  const n = Math.ceil(buf.length / s.json.chunkSize), order = [...Array(n).keys()].reverse();
+  if (n > 1) {
+    assert.equal((await c(`/api/uploads/${s.json.id}?offset=1`, { method: 'PUT', raw: buf.subarray(1, 10) })).status, 400, 'pieces start on a piece boundary');
+    order.push(n - 1);
   }
+  for (let i = 0; i < order.length; i += 2) {
+    const rs = await Promise.all(order.slice(i, i + 2).map((k) => c(`/api/uploads/${s.json.id}?offset=${k * s.json.chunkSize}`,
+      { method: 'PUT', raw: buf.subarray(k * s.json.chunkSize, (k + 1) * s.json.chunkSize) })));
+    for (const r of rs) assert.equal(r.status, 200, r.text);
+  }
+  const st = await c(`/api/uploads/${s.json.id}`);
+  assert.equal(st.json.received, buf.length); assert.equal(st.json.pieces.length, n);
   return c(`/api/uploads/${s.json.id}/complete`, { method: 'POST' });
 }
 
@@ -127,8 +133,9 @@ test('a playlist disguised as a video is rejected', { skip: !HAVE_FFMPEG && 'nee
 test('upload in pieces, prepare, export, public page; others cannot see it', { skip: !HAVE_FFMPEG && 'needs ffmpeg', timeout: 180e3 }, async () => {
   const f = path.join(dir, 'in.mkv');
   const g = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:duration=4', '-f', 'lavfi', '-i', 'sine=d=4',
-    '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', f]);
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-qp', '0', '-c:a', 'aac', f]);   // lossless: several 1 MB pieces
   assert.equal(g.status, 0, String(g.stderr));
+  assert.ok(fs.statSync(f).size > 2 * 1024 * 1024, 'the test file needs several pieces');
   const r = await upload(alex, f, 'in.mkv');
   assert.equal(r.status, 201, r.text);
   const sid = r.json.id;

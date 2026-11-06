@@ -9,13 +9,14 @@ import * as store from './store.js';
 import * as auth from './auth.js';
 import * as uploads from './uploads.js';
 import { json, sendFile, readBody } from './http.js';
-import { probe, prepare, render, plan, thumbnail, PRESETS, LEVELING, LOUDNESS, measureTrack, makeLeveledPreview, gpu, detectGpu, maxOf } from './media.js';
+import { probe, prepare, convertPreview, render, plan, thumbnail, PRESETS, LEVELING, LOUDNESS, measureTrack, makeLeveledPreview, gpu, detectGpu, maxOf } from './media.js';
 
 let FFMPEG_VERSION = 'unknown';
 try { FFMPEG_VERSION = execFileSync(process.env.FFMPEG || 'ffmpeg', ['-version']).toString().split('\n')[0].replace(/ Copyright.*/, ''); } catch { /* unknown */ }
 detectGpu().then((g) => console.log(g.available ? `GPU encoding available (${g.device})` : `GPU encoding off: ${g.error}`));
 
-// ---- job queue: one ffmpeg job at a time ----
+// ---- job queue: one ffmpeg job at a time. Converting previews waits behind everything else: the editor
+// already works without it in most browsers, and exports shouldn't wait for it. ----
 const jobs = new Map();
 const queue = [];
 let running = null;
@@ -27,7 +28,8 @@ function enqueue(job) {
 }
 async function pump() {
   if (running || !queue.length) return;
-  running = queue.shift();
+  const i = queue.findIndex((j) => j.kind !== 'preview');
+  running = queue.splice(i < 0 ? 0 : i, 1)[0];
   running.state = 'running'; running.started = Date.now();
   try {
     await running.run((f) => { running.progress = Math.round(f * 1000) / 1000; });
@@ -46,7 +48,8 @@ async function pump() {
 // error text shown to users: no server paths, no ffmpeg noise
 export const userError = (msg) => String(msg || '').replace(/(?:\/[\w.@+-]+)+\/?/g, 'the file').replace(/\s*\|\s*Last message repeated \d+ times/g, '').slice(0, 300);
 const jobView = (j) => j && { id: j.id, kind: j.kind, state: j.state, progress: j.progress, error: j.error && userError(j.error),
-  clipId: j.clipId, sourceId: j.sid, position: j.state === 'queued' ? queue.indexOf(j) + 1 : 0 };
+  clipId: j.clipId, sourceId: j.sid, position: j.state === 'queued' ? queueOrder().indexOf(j) + 1 : 0 };
+const queueOrder = () => [...queue.filter((j) => j.kind !== 'preview'), ...queue.filter((j) => j.kind === 'preview')];
 const activeJobsOf = (owner) => [...jobs.values()].filter((j) => j.owner === owner && (j.state === 'queued' || j.state === 'running')).length;
 
 function prepareJob(s) {
@@ -58,9 +61,25 @@ function prepareJob(s) {
       const r = await prepare(path.join(store.sourceDir(s.id), meta.file), store.sourceDir(s.id), meta.info, progress);
       const m = store.getSource(s.id); if (!m) return;
       markTracks(m, r.audio);
-      m.status = 'ready'; store.saveSource(m);
+      Object.assign(m, { status: 'ready', preview: r.preview });
+      if (r.direct) Object.assign(m, { direct: r.direct, directFile: r.directFile });
+      store.saveSource(m);
+      if (r.preview === 'converting') previewJob(m);
     },
     onError: (e) => { const m = store.getSource(s.id); if (m) { m.status = 'error'; m.error = userError(e.message); store.saveSource(m); } },
+  });
+}
+function previewJob(s) {
+  return enqueue({
+    kind: 'preview', sid: s.id, owner: s.owner,
+    run: async (progress) => {
+      const meta = store.getSource(s.id); if (!meta) return;
+      console.log(await convertPreview(path.join(store.sourceDir(s.id), meta.file), store.sourceDir(s.id), meta.info, progress));
+      const m = store.getSource(s.id); if (!m) return;
+      m.preview = 'ready'; if (m.directFile === 'original.mp4') delete m.directFile;
+      store.saveSource(m);
+    },
+    onError: (e) => { const m = store.getSource(s.id); if (m) { m.preview = 'error'; m.previewError = userError(e.message); store.saveSource(m); } },
   });
 }
 
@@ -92,6 +111,7 @@ function checkOldTracks(s) {
 // After a restart: redo interrupted preparing, mark interrupted exports as failed.
 for (const s of store.listSources()) {
   if (s.status === 'preparing' || s.status === 'queued') prepareJob(s);
+  else if (s.status === 'ready' && s.preview === 'converting') previewJob(s);
   checkOldTracks(s);
   let changed = false;
   for (const x of s.exports || []) if (x.state === 'queued' || x.state === 'running') { x.state = 'error'; x.error = 'interrupted by a restart'; changed = true; }
@@ -232,16 +252,16 @@ export async function handleApi(req, res, url, user) {
 
   // ---- uploads (chunked) ----
   if (p === '/api/uploads' && m === 'POST') {
-    try { const u = uploads.startUpload(user, await body(req)); return json(res, 201, { id: u.id, chunkSize: config.chunkBytes, received: 0, size: u.size }); }
+    try { const u = uploads.startUpload(user, await body(req)); return json(res, 201, { id: u.id, chunkSize: u.chunk, received: 0, size: u.size, pieces: [] }); }
     catch (e) { return sendErr(res, e); }
   }
   if ((r = /^\/api\/uploads\/([A-Za-z0-9]{20})(\/complete)?$/.exec(p))) {
     const u = uploads.getUpload(r[1]);
     if (!u || u.owner !== user.id) return json(res, 404, { error: 'no such upload' });
-    if (!r[2] && m === 'GET') return json(res, 200, { id: u.id, name: u.name, size: u.size, received: u.received, chunkSize: config.chunkBytes });
+    if (!r[2] && m === 'GET') return json(res, 200, { id: u.id, name: u.name, size: u.size, received: u.received, chunkSize: u.chunk, pieces: u.pieces });
     if (!r[2] && m === 'DELETE') { uploads.removeUpload(u.id); return json(res, 200, { ok: true }); }
     if (!r[2] && m === 'PUT') {
-      try { const v = await uploads.writeChunk(u, req, Number(url.searchParams.get('offset'))); return json(res, 200, { received: v.received }); }
+      try { const v = await uploads.writeChunk(u, req, Number(url.searchParams.get('offset'))); return json(res, 200, { received: v.received, pieces: v.pieces }); }
       catch (e) { req.resume(); return sendErr(res, e); }
     }
     if (r[2] && m === 'POST') {
@@ -354,6 +374,8 @@ export async function handleApi(req, res, url, user) {
     if (m === 'GET') {
       const f = /^(preview\.mp4|audio-\d+(?:-(?:light|strong))?\.m4a|peaks-\d+(?:-(?:light|strong))?\.json)$/.exec(sub);
       if (f) return sendFile(req, res, path.join(store.sourceDir(s.id), f[1]), { 'Cache-Control': 'private, max-age=86400' });
+      // the recording itself, for browsers that can play it while the preview is converted
+      if (sub === 'original.mp4' && s.directFile) return sendFile(req, res, path.join(store.sourceDir(s.id), s.directFile), { 'Content-Type': 'video/mp4', 'Cache-Control': 'private, max-age=86400' });
     }
   }
 

@@ -56,8 +56,9 @@ The clip pages must be reachable from the internet for Discord embeds to work. E
 For AMD or Intel graphics: set `VAAPI_DEVICE=/dev/dri/renderD128` in `.env`, then uncomment `devices` and
 `group_add` in the compose file. `group_add` needs the id from `getent group render`. The admin page shows
 whether it works. Exports then get a "Fast GPU encode" checkbox (ticked by default with `GPU_DEFAULT=true`): it's much faster, but needs more MB for the same
-quality. The GPU also converts uploads the browser can't play (e.g. HEVC from OBS) into the editor's preview, which
-is much faster than doing it on the CPU. (NVIDIA isn't supported yet.)
+quality. With GPU decoding these exports also leave the CPU mostly free. The GPU also converts uploads not every browser
+can play (e.g. HEVC from OBS) into the editor's preview; browsers that can play them (most can play HEVC now) can start
+editing right away and don't wait for that. (NVIDIA isn't supported yet.)
 
 ### Settings
 

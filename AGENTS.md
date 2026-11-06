@@ -14,7 +14,8 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
   admin (password-only sign-in, so passwords are unique), scrypt hashes, sessions (hashed tokens), rate limiting.
 - `server/api.js`: signed-in API: chunked uploads, library, editor endpoints, exports, user management,
   the one-at-a-time ffmpeg job queue, housekeeping (stale uploads, optional retention).
-- `server/uploads.js`: resumable upload in pieces (Cloudflare's 100 MB body limit; flaky connections).
+- `server/uploads.js`: resumable upload in pieces, several at once, any order (Cloudflare's 100 MB body limit;
+  flaky connections; one request through the proxy is slower than the line).
 - `server/media.js`: probe, editor previews (silent video, per-track audio, peaks, leveled previews), the size
   planner, the render (x264 two-pass / CRF, or VAAPI), audio graph (leveling, mix, normalization, limiter).
 - `server/pages.js`: anonymous watch pages with Open Graph video tags, access log (no IPs).

@@ -117,7 +117,7 @@ export async function waitJob(id, onUpdate) {
 export function jobText(job) {
   if (!job) return '';
   if (job.state === 'queued') return job.position > 1 ? `waiting (${job.position - 1} ahead)` : 'waiting';
-  if (job.state === 'running') return `${job.kind === 'prepare' ? 'preparing' : 'encoding'} ${Math.round(job.progress * 100)}%`;
+  if (job.state === 'running') return `${{ prepare: 'preparing', preview: 'converting' }[job.kind] || 'encoding'} ${Math.round(job.progress * 100)}%`;
   if (job.state === 'error') return `failed: ${job.error}`;
   return 'done';
 }

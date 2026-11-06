@@ -517,9 +517,12 @@ async function load() {
   edit = normalize(source.edit);
   setupAudioElements();
   peaks = await Promise.all(info.audio.map((a) => api(`${base}/peaks-${a.n}.json`).then((d) => d.peaks).catch(() => null)));
-  video.src = `${base}/preview.mp4`;
-  video.addEventListener('loadedmetadata', () => { video.currentTime = edit.start; overlay.remove(); }, { once: true });
-  video.addEventListener('error', () => { overlay.innerHTML = '<div class="bad">The preview could not be played in this browser.</div>'; }, { once: true });
+  video.addEventListener('loadedmetadata', () => { video.currentTime = Math.max(edit.start, video.currentTime || 0); overlay.remove(); });
+  video.addEventListener('error', () => {
+    if (!noDirect && video.src.endsWith('/original.mp4')) { noDirect = true; loadVideo().catch(showError); }   // wait for the converted preview
+    else showError(new Error('The preview could not be played in this browser.'));
+  });
+  loadVideo().catch(showError);
   setView(0, info.duration);
   layout();
   fillFields();
@@ -528,7 +531,28 @@ async function load() {
   renderExports();
   requestAnimationFrame(frame);
 }
-load().catch((e) => { overlay.innerHTML = `<div class="bad">${esc(e.message)}</div>`; });
+// The converted preview (light, plays everywhere) when it's done; until then the recording itself if this
+// browser can play its codec (most can play HEVC from OBS now); else wait for the preview.
+let noDirect = false;
+const stage = overlay.parentNode;
+async function loadVideo() {
+  const playsDirect = () => !noDirect && source.direct && source.directFile && video.canPlayType(`video/mp4; codecs="${source.direct}"`) !== '';
+  while (source.preview === 'converting' || source.preview === 'error') {
+    if (playsDirect()) { video.src = `${base}/original.mp4`; return; }
+    if (source.preview === 'error') throw new Error(`This video could not be prepared for this browser: ${source.previewError || 'conversion failed'}`);
+    const j = source.jobs?.find((x) => x.kind === 'preview');
+    if (!overlay.isConnected) stage.append(overlay);
+    overlay.innerHTML = `<div>Converting the video so this browser can play it…<br><span class="muted">${esc(j ? jobText(j) : '')}</span></div>`;
+    await sleep(1500);
+    source = await api(base);
+  }
+  video.src = `${base}/preview.mp4`;
+}
+function showError(e) {
+  if (!overlay.isConnected) stage.append(overlay);
+  overlay.innerHTML = `<div class="bad">${esc(e.message)}</div>`;
+}
+load().catch(showError);
 
 // for troubleshooting from the browser console: clipsDebug()
 window.clipsDebug = () => ({ video: video.currentTime, paused: video.paused, ctx: actx?.state,

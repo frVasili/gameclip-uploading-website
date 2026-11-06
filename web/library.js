@@ -40,8 +40,10 @@ $('#loginForm').onsubmit = async (e) => {
 };
 
 // ======================= upload =======================
-// Files go up in pieces (status.chunkSize). The upload id is remembered per file, so choosing the same file
+// Files go up in pieces (status.chunkSize), UPLOAD_PARALLEL at a time: one request through Cloudflare is often
+// slower than the connection, and the proxy holds each piece before passing it on. The upload id is remembered per file, so choosing the same file
 // again after a dropped connection or a closed tab continues where it stopped.
+const UPLOAD_PARALLEL = 3;
 const pending = [];
 let uploading = false;
 const resumeKey = (f) => `clips-upload:${f.name}:${f.size}:${f.lastModified}`;
@@ -66,9 +68,10 @@ async function pumpUploads() {
   } finally { uploading = false; pumpUploads(); }
 }
 
-function putPiece(url, blob, onProgress, xhrRef) {
+function putPiece(url, blob, onProgress, xhrs) {
   return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest(); xhrRef.current = xhr;
+    const xhr = new XMLHttpRequest(); xhrs.add(xhr);
+    xhr.onloadend = () => xhrs.delete(xhr);
     xhr.open('PUT', url); xhr.setRequestHeader('X-Clips', '1');
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded);
     xhr.onload = () => {
@@ -90,10 +93,10 @@ async function uploadOne(file) {
     <div class="progress"><div></div></div>`;
   $('#uploads').append(el);
   const bar = el.querySelector('.progress > div'), stat = el.querySelector('[data-stat]');
-  const xhrRef = { current: null };
+  const xhrs = new Set();
   let cancelled = false, up = null;
   el.querySelector('[data-cancel]').onclick = () => {
-    cancelled = true; xhrRef.current?.abort();
+    cancelled = true; for (const x of xhrs) x.abort();
     if (up) api(`/api/uploads/${up.id}`, { method: 'DELETE' }).catch(() => {});
     localStorage.removeItem(resumeKey(file));
   };
@@ -106,28 +109,46 @@ async function uploadOne(file) {
       localStorage.setItem(resumeKey(file), up.id);
     } else toast(`Resuming ${file.name} at ${Math.round((up.received / file.size) * 100)}%`);
 
-    let offset = up.received, tries = 0;
-    const t0 = performance.now(), startOffset = offset;
-    while (offset < file.size) {
-      if (cancelled) throw new Error('cancelled');
-      const end = Math.min(file.size, offset + up.chunkSize);
-      try {
-        const r = await putPiece(`/api/uploads/${up.id}?offset=${offset}`, file.slice(offset, end), (loaded) => {
-          const done = offset + loaded, secs = (performance.now() - t0) / 1000, rate = (done - startOffset) / Math.max(secs, 0.001);
-          bar.style.width = `${((done / file.size) * 100).toFixed(1)}%`;
-          stat.textContent = `${Math.round((done / file.size) * 100)}% · ${fmtBytes(rate)}/s · ${fmtDuration(rate > 0 ? (file.size - done) / rate : 0)} left · ${fmtBytes(file.size)}`;
-        }, xhrRef);
-        offset = r.received; tries = 0;
-      } catch (e) {
-        if (e.message === 'cancelled') throw e;
-        if (e.status && e.status !== 409 && e.status < 500 && e.status !== 429) throw e;   // a real refusal: don't retry
-        if (++tries > 8) throw new Error(`${e.message} (gave up after 8 retries; choose the file again to resume)`);
-        const wait = Math.min(30, 2 ** tries);
-        stat.textContent = `${e.message}, retrying in ${wait} s…`;
-        await sleep(wait * 1000);
-        offset = (await api(`/api/uploads/${up.id}`)).received;   // ask where the server got to
+    // pieces still missing; each worker takes the next one. Progress counts finished pieces plus what is in flight.
+    const size = (k) => Math.min(up.chunkSize, file.size - k * up.chunkSize);
+    const have = new Set(up.pieces || [...Array(Math.floor(up.received / up.chunkSize)).keys()]);
+    const todo = [...Array(Math.ceil(file.size / up.chunkSize)).keys()].filter((k) => !have.has(k));
+    const inFlight = new Map();
+    let done = [...have].reduce((n, k) => n + size(k), 0), failures = 0;
+    const t0 = performance.now(), startDone = done;
+    const show = () => {
+      const now = done + [...inFlight.values()].reduce((a, b) => a + b, 0);
+      const secs = (performance.now() - t0) / 1000, rate = (now - startDone) / Math.max(secs, 0.001);
+      bar.style.width = `${((now / file.size) * 100).toFixed(1)}%`;
+      stat.textContent = `${Math.round((now / file.size) * 100)}% · ${fmtBytes(rate)}/s · ${fmtDuration(rate > 0 ? (file.size - now) / rate : 0)} left · ${fmtBytes(file.size)}`;
+    };
+    const worker = async () => {
+      while (todo.length) {
+        const k = todo.shift(), offset = k * up.chunkSize;
+        for (;;) {
+          if (cancelled) throw new Error('cancelled');
+          try {
+            inFlight.set(k, 0);
+            await putPiece(`/api/uploads/${up.id}?offset=${offset}`, file.slice(offset, offset + size(k)), (loaded) => { inFlight.set(k, loaded); show(); }, xhrs);
+            inFlight.delete(k); done += size(k); failures = 0; show();
+            break;
+          } catch (e) {
+            inFlight.delete(k);
+            if (e.message === 'cancelled' || cancelled) throw new Error('cancelled');
+            if (e.status && e.status < 500 && e.status !== 429) throw e;   // a real refusal: don't retry
+            if (++failures > 8) throw new Error(`${e.message} (gave up after 8 retries; choose the file again to resume)`);
+            const wait = Math.min(30, 2 ** Math.min(failures, 5));
+            stat.textContent = `${e.message}, retrying in ${wait} s…`;
+            await sleep(wait * 1000);
+          }
+        }
       }
-    }
+    };
+    let firstError = null;   // one worker giving up stops the others
+    await Promise.all([...Array(UPLOAD_PARALLEL)].map(() => worker().catch((e) => {
+      if (!firstError) { firstError = e; cancelled = true; for (const x of xhrs) x.abort(); }
+    })));
+    if (firstError) throw firstError;
     stat.textContent = 'checking the video…';
     const src = await api(`/api/uploads/${up.id}/complete`, { method: 'POST' });
     localStorage.removeItem(resumeKey(file));

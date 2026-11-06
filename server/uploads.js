@@ -1,8 +1,9 @@
 // Resumable uploads in pieces. Proxies limit request bodies (Cloudflare: 100 MB), and big recordings over a
-// home connection drop out, so the browser sends UPLOAD_CHUNK_MB pieces in order and can resume.
-//   POST   /api/uploads                 { name, size }  -> { id, chunkSize, received }
-//   GET    /api/uploads/<id>                            -> { id, name, size, received }
-//   PUT    /api/uploads/<id>?offset=N   raw bytes       -> { received }
+// home connection drop out, so the browser sends UPLOAD_CHUNK_MB pieces, several at once (one connection
+// through a proxy is often slower than the line), in any order, and can resume.
+//   POST   /api/uploads                 { name, size }  -> { id, chunkSize, received, pieces }
+//   GET    /api/uploads/<id>                            -> { id, name, size, received, chunkSize, pieces }
+//   PUT    /api/uploads/<id>?offset=N   raw bytes       -> { received, pieces }   (N = k * chunkSize)
 //   POST   /api/uploads/<id>/complete                   -> Source (probed, queued for preparing)
 //   DELETE /api/uploads/<id>
 import fs from 'node:fs';
@@ -14,7 +15,16 @@ export const VIDEO_EXT = new Set(['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'ts
 const meta = (id) => path.join(store.UPLOADS, `${id}.json`);
 const part = (id) => path.join(store.UPLOADS, `${id}.part`);
 
-export function getUpload(id) { return store.UPLOAD_ID.test(id) ? store.readJson(meta(id)) : null; }
+export function getUpload(id) {
+  const u = store.UPLOAD_ID.test(id) ? store.readJson(meta(id)) : null;
+  if (u && !u.pieces) {   // started before pieces could come in any order: everything up to `received` is there
+    u.chunk = config.chunkBytes;
+    u.pieces = [...Array(u.received === u.size ? Math.ceil(u.size / u.chunk) : Math.floor(u.received / u.chunk)).keys()];
+    u.received = Math.min(u.size, u.pieces.length * u.chunk);
+  }
+  return u;
+}
+export const pieceCount = (u) => Math.ceil(u.size / u.chunk);
 const saveUpload = (u) => store.writeJson(meta(u.id), u);
 
 export function removeUpload(id) {
@@ -40,21 +50,22 @@ export function startUpload(user, { name, size }) {
       throw fail(413, `this would go over your storage limit (${(used / 1e9).toFixed(1)} of ${(user.quota / 1e9).toFixed(0)} GB used). Delete old uploads or ask the admin for more space.`);
     }
   }
-  const u = { id: store.randomId(20), owner: user.id, name, ext, size, received: 0, created: Date.now(), updated: Date.now() };
+  const u = { id: store.randomId(20), owner: user.id, name, ext, size, chunk: config.chunkBytes, pieces: [], received: 0, created: Date.now(), updated: Date.now() };
   fs.writeFileSync(part(u.id), '');
   saveUpload(u);
   return u;
 }
 
-// Appends one piece at `offset`. Pieces must arrive in order; a retried piece that already arrived is accepted.
+// Writes piece number offset/chunk. Pieces can come in any order and at the same time; a piece that already
+// arrived is accepted again (a retry after a lost answer).
 export async function writeChunk(u, req, offset) {
   const fail = (status, msg) => Object.assign(new Error(msg), { status });
   const len = Number(req.headers['content-length'] || 0);
   if (!len) throw fail(411, 'missing Content-Length');
-  if (len > config.chunkBytes + 1024) throw fail(413, 'piece too large');
-  if (offset + len > u.size) throw fail(400, 'piece goes past the end of the file');
-  if (offset < u.received && offset + len <= u.received) { req.resume(); return u; } // duplicate of a piece we have
-  if (offset !== u.received) throw fail(409, `expected offset ${u.received}`);
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset % u.chunk || offset >= u.size) throw fail(400, 'bad piece offset');
+  if (len !== Math.min(u.chunk, u.size - offset)) throw fail(400, 'wrong piece size');
+  const k = offset / u.chunk;
+  if (u.pieces.includes(k)) { req.resume(); return u; }
   const fh = await fs.promises.open(part(u.id), 'r+');
   let pos = offset;
   try {
@@ -65,9 +76,15 @@ export async function writeChunk(u, req, offset) {
     }
   } finally { await fh.close(); }
   if (pos !== offset + len) throw fail(400, 'piece incomplete');
-  u.received = pos; u.updated = Date.now();
-  saveUpload(u);
-  return u;
+  // other pieces may have finished meanwhile: re-read and save in one synchronous step
+  const fresh = getUpload(u.id);
+  if (!fresh) throw fail(404, 'the upload was cancelled');
+  if (!fresh.pieces.includes(k)) fresh.pieces.push(k);
+  fresh.pieces.sort((a, b) => a - b);
+  fresh.received = fresh.pieces.reduce((n, i) => n + Math.min(fresh.chunk, fresh.size - i * fresh.chunk), 0);
+  fresh.updated = Date.now();
+  saveUpload(fresh);
+  return fresh;
 }
 
 // Moves a finished upload into its source folder; returns the file path there.

@@ -25,7 +25,9 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 **Source** (an uploaded recording):
 ```
 { id: "16 chars", owner, ownerName, name, size, created, status: "queued"|"preparing"|"ready"|"error", error?,
-  info: { duration, width, height, fps, vcodec, pixFmt, container, bitrate,
+  preview?: "converting"|"ready"|"error", previewError?,   // the editor's H.264 preview.mp4 (absent = ready)
+  direct?: "hvc1.1.6.L153.B0",   // codec string: if video.canPlayType() says yes, original.mp4 plays meanwhile
+  info: { duration, width, height, fps, vcodec, vprofile?, vtag?, pixFmt, container, bitrate,
           audio: [ { n, codec, channels, layout, title, language, silent?, sameAs? } ] },  // after preparing: silent track, or
                                                    // sameAs = n of an earlier track with exactly the same sound
   edit?: Edit, jobs: [Job], exports: [ { clipId, created, state, error?, size?, title, clip: Clip|null } ] }
@@ -41,16 +43,16 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
   resolution: "auto"|"source"|"2160"|"1440"|"1080"|"720"|"480", fps: "source"|"60"|"30",
   gpu: bool }                                   // VAAPI encode if the server has it (default: GPU_DEFAULT)
 ```
-**Job**: `{ id: "10 chars", kind: "prepare"|"render", state: "queued"|"running"|"done"|"error", progress: 0..1, error?, clipId?, sourceId, position }`
+**Job**: `{ id: "10 chars", kind: "prepare"|"preview"|"render", state: "queued"|"running"|"done"|"error", progress: 0..1, error?, clipId?, sourceId, position }`
 
 **Clip**: `{ id: "12 chars", owner, ownerName, title, created, width, height, fps, duration, size, hasThumb, sourceId, preset, gpu, url, mp4 }`
 
 ## Uploads (in pieces)
 | method | path | |
 |---|---|---|
-| POST | `/api/uploads` | `{ name, size }` → 201 `{ id: "20 chars", chunkSize, received: 0, size }`. Checks type, size, disk, quota first |
-| GET | `/api/uploads/<id>` | `{ received, size, chunkSize }` (to resume) |
-| PUT | `/api/uploads/<id>?offset=N` | raw bytes, at most `chunkSize`, in order → `{ received }`. 409 = wrong offset (GET and continue) |
+| POST | `/api/uploads` | `{ name, size }` → 201 `{ id: "20 chars", chunkSize, received: 0, size, pieces: [] }`. Checks type, size, disk, quota first |
+| GET | `/api/uploads/<id>` | `{ received, size, chunkSize, pieces }` (to resume: `pieces` = numbers of the pieces that arrived) |
+| PUT | `/api/uploads/<id>?offset=N` | piece number N / chunkSize: raw bytes, exactly `chunkSize` (less for the last). Any order, several at once; a piece sent again is accepted → `{ received, pieces }` |
 | POST | `/api/uploads/<id>/complete` | probes the file → 201 Source (then prepared in the background), or 400 if it isn't a usable video |
 | DELETE | `/api/uploads/<id>` | cancel. Unfinished uploads untouched for 24 h are deleted |
 
@@ -65,7 +67,7 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 | POST | `/api/sources/<sid>/leveled` | `{ n, level }` → `{ url, peaks }` leveled preview of a track (made once, cached) |
 | POST | `/api/sources/<sid>/loudness` | `{ tracks: [{ n, level }] }` → `[{ n, level, lufs }]` |
 | DELETE | `/api/sources/<sid>/exports/<clipId>` | dismiss a failed export (a finished one is deleted with its clip) |
-| GET | `/api/sources/<sid>/preview.mp4`, `audio-<n>[-light\|-strong].m4a`, `peaks-<n>[-light\|-strong].json` | editor media |
+| GET | `/api/sources/<sid>/preview.mp4`, `original.mp4` (while `preview` is converting, if `direct`), `audio-<n>[-light\|-strong].m4a`, `peaks-<n>[-light\|-strong].json` | editor media |
 | GET | `/api/jobs/<id>` | Job |
 | GET | `/api/clips[?owner=<id>]` | Clip[] |
 | GET / PATCH / DELETE | `/api/clips/<id>` | read; `{ title }`; delete (the link stops working) |

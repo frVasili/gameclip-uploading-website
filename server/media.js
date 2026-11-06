@@ -118,63 +118,53 @@ export async function probe(file) {
   }));
   return {
     duration, width, height, fps: Math.round(parseRate(v.avg_frame_rate) || parseRate(v.r_frame_rate) || 30),
-    vcodec: v.codec_name, pixFmt: v.pix_fmt, container: j.format?.format_name, bitrate: Number(j.format?.bit_rate || 0),
+    vcodec: v.codec_name, vprofile: v.profile || '', vtag: v.codec_tag_string || '', pixFmt: v.pix_fmt, container: j.format?.format_name, bitrate: Number(j.format?.bit_rate || 0),
     audio,
   };
 }
 
-// Editor files: a browser-playable video without audio, each audio track separately, and waveform peaks.
-// Two ffmpeg runs side by side: one makes the video preview, one does all audio tracks (it used to be
-// 1 + 2 per track runs one after another, each reading the whole file; ffmpeg 6 handles all outputs of one
-// run on one thread, so video and audio in one run would add up). Videos browsers can't play (e.g. HEVC from
-// OBS) become a 720p H.264 preview, with help from the GPU if there is one (PREVIEW_HW).
-// Returns per-track facts for the editor: { audio: [{ n, silent, sameAs }] } where sameAs is the n of an
-// earlier track with exactly the same decoded sound (OBS can write the same mix to several tracks).
+// Editor files, made right after an upload: each audio track separately (copied as is when browsers can play
+// it, which is quick), waveform peaks, and a way to show the video:
+//  - H.264 that every browser plays: copied into preview.mp4, done.
+//  - Anything else (e.g. HEVC from OBS): convertPreview() makes a 720p H.264 preview.mp4 later, as its own
+//    job. Until then the editor shows the recording itself to browsers that can play its codec (most can play
+//    HEVC now): the source file when it is an MP4/MOV, else a copy of its video stream in original.mp4.
+// Returns { audio: [{ n, silent, sameAs }], preview: 'ready'|'converting', direct?, directFile? } where sameAs is
+// the n of an earlier track with exactly the same decoded sound (OBS can write the same mix to several tracks)
+// and direct is the codec string the browser checks (canPlayType) before playing directFile.
 export async function prepare(src, dir, info, onProgress = () => {}) {
-  const playable = info.vcodec === 'h264' && info.pixFmt === 'yuv420p' && info.height <= 1440;
-  const outH = even(Math.min(720, info.height)), outW = even(outH * info.width / info.height);
+  const playable = isPlayable(info);
+  const direct = playable ? null : directCodec(info);
+  const asIs = direct && /(^|,)(mov|mp4)(,|$)/.test(info.container || '') && (info.vcodec !== 'hevc' || info.vtag === 'hvc1');
   const pcm = (n) => path.join(dir, `pcm-${n}.tmp`);
   const head = ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats'];
-  const prog = { v: 0, a: info.audio.length ? 0 : 1 };
+  const prog = { v: playable || (direct && !asIs) ? 0 : 1, a: info.audio.length ? 0 : 1 };
   const report = () => onProgress(Math.min(prog.v, prog.a) * 0.97);
+  const t0 = Date.now(), took = () => `${((Date.now() - t0) / 1000).toFixed(1)} s`;
 
-  // 'gpu': decode, scale and encode on the GPU. 'hybrid': the GPU decodes (ffmpeg quietly decodes on the CPU
-  // if the GPU can't handle the codec), the CPU scales and encodes. 'cpu', or 'copy' when it already plays.
-  const makeVideo = (mode) => {
-    const hw = mode === 'gpu' ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-hwaccel', 'vaapi', '-hwaccel_device', 'va', '-hwaccel_output_format', 'vaapi']
-      : mode === 'hybrid' ? ['-hwaccel', 'vaapi', '-hwaccel_device', gpu.device] : [];
-    const v = mode === 'copy' ? ['-c:v', 'copy']
-      : mode === 'gpu' ? ['-vf', `scale_vaapi=w=${outW}:h=${outH}:format=nv12`, '-c:v', 'h264_vaapi', '-rc_mode', 'CQP', '-qp', '26', '-g', '30']
-        : ['-vf', `scale=${outW}:${outH}:flags=bicubic,format=yuv420p`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '30', '-threads', THREADS];
-    return run(FFMPEG, [...head, ...hw, ...SAFE, '-i', src, '-map', '0:v:0', ...v, '-an', '-sn', '-dn', '-movflags', '+faststart', path.join(dir, 'preview.mp4')],
-      { duration: info.duration, onProgress: (f) => { prog.v = f; report(); } });
-  };
   const video = async () => {
-    if (!playable && config.previewHw !== 'off') await recheckGpu();
-    const t0 = Date.now();
-    let mode = playable ? 'copy' : gpu.available && config.previewHw !== 'off' ? (config.previewHw === 'full' ? 'gpu' : 'hybrid') : 'cpu';
-    try { await makeVideo(mode); } catch (e) {
-      if (mode === 'copy' || mode === 'cpu') throw e;
-      console.error(`GPU preview (${mode}) failed, using the CPU:`, e.message);   // e.g. a codec this GPU can't decode
-      mode = 'cpu'; await makeVideo(mode);
-    }
-    return `video ${((Date.now() - t0) / 1000).toFixed(1)} s (${mode})`;
+    if (prog.v === 1) return asIs ? 'video: the recording itself' : 'video: preview to convert';
+    const out = playable ? 'preview.mp4' : 'original.mp4';
+    await run(FFMPEG, [...head, ...SAFE, '-i', src, '-map', '0:v:0', '-c:v', 'copy', ...(info.vcodec === 'hevc' ? ['-tag:v', 'hvc1'] : []),
+      '-an', '-sn', '-dn', ...(playable ? ['-movflags', '+faststart'] : []), path.join(dir, out)],
+    { duration: info.duration, onProgress: (f) => { prog.v = f; report(); } });
+    return `video copied in ${took()}`;
   };
   const audio = async () => {
     if (!info.audio.length) return 'no audio';
-    const t0 = Date.now(), outs = [];
+    const outs = [];
     for (const a of info.audio) {
-      outs.push('-map', `0:a:${a.n}`, '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-movflags', '+faststart', path.join(dir, `audio-${a.n}.m4a`));
+      const copy = a.codec === 'aac' && a.channels <= 2;   // the browser plays it as it is
+      outs.push('-map', `0:a:${a.n}`, ...(copy ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '128k', '-ac', '2']), '-movflags', '+faststart', path.join(dir, `audio-${a.n}.m4a`));
       outs.push('-map', `0:a:${a.n}`, '-ac', '1', '-ar', '8000', '-f', 's16le', pcm(a.n));   // for the waveform
     }
     await run(FFMPEG, [...head, ...SAFE, '-i', src, '-vn', '-sn', '-dn', ...outs], { duration: info.duration, onProgress: (f) => { prog.a = f; report(); } });
-    return `audio ${((Date.now() - t0) / 1000).toFixed(1)} s`;
+    return `audio in ${took()}`;
   };
 
   try {
-    const t0 = Date.now();
     const times = await Promise.all([video(), audio()]);
-    console.log(`prepared ${path.basename(dir)}: ${Math.round(info.duration)} s of ${info.vcodec} ${info.width}x${info.height}, ${info.audio.length} audio track(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s: ${times.join(', ')}`);
+    console.log(`prepared ${path.basename(dir)}: ${Math.round(info.duration)} s of ${info.vcodec} ${info.width}x${info.height}, ${info.audio.length} audio track(s) in ${took()}: ${times.join(', ')}`);
 
     const seen = new Map();   // hash of the decoded sound -> first track with it
     const facts = info.audio.map((a) => {
@@ -186,10 +176,48 @@ export async function prepare(src, dir, info, onProgress = () => {}) {
       return { n: a.n, silent, sameAs };
     });
     onProgress(1);
-    return { audio: facts };
+    return { audio: facts, preview: playable ? 'ready' : 'converting', ...(direct ? { direct, directFile: asIs ? path.basename(src) : 'original.mp4' } : {}) };
   } finally {
     for (const a of info.audio) fs.rmSync(pcm(a.n), { force: true });
   }
+}
+export const isPlayable = (info) => info.vcodec === 'h264' && info.pixFmt === 'yuv420p' && info.height <= 1440;
+
+// The codec string a browser needs to say it can play the recording itself (video.canPlayType), or null
+// when the codec can't go in an MP4 for browsers at all.
+export function directCodec(info) {
+  const deep = /10|12/.test(info.pixFmt || '');
+  if (info.vcodec === 'hevc') return /10/.test(info.vprofile) || deep ? 'hvc1.2.4.L153.B0' : 'hvc1.1.6.L153.B0';
+  if (info.vcodec === 'h264') return 'avc1.640033';
+  if (info.vcodec === 'av1') return deep ? 'av01.0.12M.10' : 'av01.0.12M.08';
+  if (info.vcodec === 'vp9') return deep ? 'vp09.02.51.10' : 'vp09.00.51.08';
+  return null;
+}
+
+// The 720p H.264 preview for videos browsers can't all play. Runs as its own job after prepare(); the GPU does
+// decode, scaling and encoding when there is one (PREVIEW_HW). Returns a line for the log.
+export async function convertPreview(src, dir, info, onProgress = () => {}) {
+  const outH = even(Math.min(720, info.height)), outW = even(outH * info.width / info.height);
+  const make = (mode) => {
+    const hw = mode === 'gpu' ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-hwaccel', 'vaapi', '-hwaccel_device', 'va', '-hwaccel_output_format', 'vaapi']
+      : mode === 'hybrid' ? ['-hwaccel', 'vaapi', '-hwaccel_device', gpu.device] : [];
+    const v = mode === 'gpu' ? ['-vf', `scale_vaapi=w=${outW}:h=${outH}:format=nv12`, '-c:v', 'h264_vaapi', '-rc_mode', 'CQP', '-qp', '26', '-g', '30']
+      : ['-vf', `scale=${outW}:${outH}:flags=bicubic,format=yuv420p`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '30', '-threads', THREADS];
+    return run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', ...hw, ...SAFE, '-i', src, '-map', '0:v:0', ...v,
+      '-an', '-sn', '-dn', '-movflags', '+faststart', path.join(dir, 'preview.tmp.mp4')], { duration: info.duration, onProgress });
+  };
+  if (config.previewHw !== 'off') await recheckGpu();
+  const t0 = Date.now();
+  let mode = gpu.available && config.previewHw !== 'off' ? (config.previewHw === 'full' ? 'gpu' : 'hybrid') : 'cpu';
+  try { await make(mode); } catch (e) {
+    if (mode === 'cpu') throw e;
+    console.error(`GPU preview (${mode}) failed, using the CPU:`, e.message);   // e.g. a codec this GPU can't decode
+    mode = 'cpu'; await make(mode);
+  }
+  fs.renameSync(path.join(dir, 'preview.tmp.mp4'), path.join(dir, 'preview.mp4'));   // never a half-written preview
+  fs.rmSync(path.join(dir, 'original.mp4'), { force: true });   // not needed any more
+  onProgress(1);
+  return `preview of ${path.basename(dir)}: ${Math.round(info.duration)} s converted in ${((Date.now() - t0) / 1000).toFixed(1)} s (${mode})`;
 }
 // largest value without spreading (a long recording has millions of peaks)
 export const maxOf = (xs) => { let m = 0; for (const x of xs) if (x > m) m = x; return m; };
@@ -253,14 +281,17 @@ export function plan(info, edit) {
   return { preset: edit.preset in PRESETS ? edit.preset : 'discord', cap: preset.cap, dur, ...out, audioKbps, activeTracks, budget, ceiling, mode, estBytes: Math.round(estBytes) };
 }
 
+// gpu: false (all on the CPU), 'upload' (CPU filters, frames go to the GPU encoder) or 'full' (frames stay on the
+// GPU from decoding to encoding; no video fades then, they only exist as CPU filters)
 export function filters(info, edit, p, loud = null, gpu = false) {
   const vf = [];
-  if (p.w !== info.width || p.h !== info.height) vf.push(`scale=${p.w}:${p.h}:flags=lanczos`);
+  if (gpu === 'full') vf.push(`scale_vaapi=w=${p.w}:h=${p.h}:format=nv12`);
+  else if (p.w !== info.width || p.h !== info.height) vf.push(`scale=${p.w}:${p.h}:flags=lanczos`);
   if (p.fps < (info.fps || 30) - 0.5) vf.push(`fps=${p.fps}`);
   const fi = Math.max(0, Number(edit.fadeIn) || 0), fo = Math.max(0, Number(edit.fadeOut) || 0);
   if (edit.videoFade && fi) vf.push(`fade=t=in:st=0:d=${fi}`);
   if (edit.videoFade && fo) vf.push(`fade=t=out:st=${Math.max(0, p.dur - fo).toFixed(3)}:d=${fo}`);
-  vf.push(gpu ? 'format=nv12,hwupload' : 'format=yuv420p');
+  if (gpu !== 'full') vf.push(gpu ? 'format=nv12,hwupload' : 'format=yuv420p');
   const parts = [`[0:v:0]${vf.join(',')}[v]`];
   if (p.activeTracks.length) {
     const labels = p.activeTracks.map((t, i) => {
@@ -320,10 +351,14 @@ async function testGpu() {
   return gpu;
 }
 
+// codecs the GPU (VAAPI) decodes; others are decoded on the CPU. A failed GPU decode falls back to the CPU.
+const FULL_GPU_CODECS = new Set(['h264', 'hevc']);
+
 export async function render(src, info, edit, outFile, tmpDir, onProgress = () => {}) {
   const p = plan(info, edit);
   if (edit.gpu) await recheckGpu();
   const useGpu = !!edit.gpu && gpu.available;
+  const t0 = Date.now();
   let loud = null;
   if (edit.normalize !== false && p.activeTracks.length) {
     // pass 0: measure the loudness of the exact mix (audio only, quick)
@@ -333,29 +368,36 @@ export async function render(src, info, edit, outFile, tmpDir, onProgress = () =
     if (Number.isFinite(m.I) && m.I > -70) loud = m;   // silence: leave it alone
     onProgress(0.05);
   }
-  const fc = filters(info, edit, p, loud, useGpu);
+  // GPU: decode on the GPU too when it can (much less work for the CPU), else decode on the CPU and upload
+  let gpuMode = !useGpu ? false : !edit.videoFade && FULL_GPU_CODECS.has(info.vcodec) && info.pixFmt === 'yuv420p' ? 'full' : 'upload';
   const preset = p.dur <= 120 ? 'medium' : p.dur <= 600 ? 'fast' : 'veryfast';
-  const hw = useGpu ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-filter_hw_device', 'va'] : [];
-  const input = ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', ...hw, '-ss', edit.start.toFixed(3), '-t', p.dur.toFixed(3), ...SAFE, '-i', src];
-  const common = useGpu
-    ? ['-filter_complex', fc, '-map', '[v]', '-c:v', 'h264_vaapi', '-profile:v', 'high', '-g', String(p.fps * 2)]
-    : ['-filter_complex', fc, '-map', '[v]', '-c:v', 'libx264', '-preset', preset, '-profile:v', 'high', '-g', String(p.fps * 2), '-threads', THREADS];
+  const hwIn = () => gpuMode === 'full' ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-hwaccel', 'vaapi', '-hwaccel_device', 'va', '-hwaccel_output_format', 'vaapi', '-filter_hw_device', 'va']
+    : gpuMode ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-filter_hw_device', 'va'] : [];
+  const input = () => ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', ...hwIn(), '-ss', edit.start.toFixed(3), '-t', p.dur.toFixed(3), ...SAFE, '-i', src];
+  const common = () => gpuMode
+    ? ['-filter_complex', filters(info, edit, p, loud, gpuMode), '-map', '[v]', '-c:v', 'h264_vaapi', '-profile:v', 'high', '-g', String(p.fps * 2)]
+    : ['-filter_complex', filters(info, edit, p, loud, false), '-map', '[v]', '-c:v', 'libx264', '-preset', preset, '-profile:v', 'high', '-g', String(p.fps * 2), '-threads', THREADS];
   const audio = p.activeTracks.length ? ['-map', '[a]', '-c:a', 'aac', '-b:a', `${p.audioKbps}k`, '-ac', '2'] : ['-an'];
   const meta = ['-map_metadata', '-1', '-map_chapters', '-1', '-metadata', `title=${(edit.title || '').slice(0, 200)}`, '-movflags', '+faststart'];
   const passlog = path.join(tmpDir, `x264-${path.basename(outFile)}`);
 
   const twoPass = async (kbps, from, span) => {
     const rate = ['-b:v', `${kbps}k`, '-maxrate', `${Math.round(kbps * 1.5)}k`, '-bufsize', `${kbps * 2}k`];
-    await run(FFMPEG, [...input, ...common, ...rate, '-pass', '1', '-passlogfile', passlog, ...audio, '-f', 'mp4', '/dev/null'],
+    await run(FFMPEG, [...input(), ...common(), ...rate, '-pass', '1', '-passlogfile', passlog, ...audio, '-f', 'mp4', '/dev/null'],
       { duration: p.dur, onProgress: (f) => onProgress(from + f * span * 0.4) });
-    await run(FFMPEG, [...input, ...common, ...rate, '-pass', '2', '-passlogfile', passlog, ...audio, ...meta, outFile],
+    await run(FFMPEG, [...input(), ...common(), ...rate, '-pass', '2', '-passlogfile', passlog, ...audio, ...meta, outFile],
       { duration: p.dur, onProgress: (f) => onProgress(from + span * 0.4 + f * span * 0.6) });
   };
 
   // GPU: one pass at a target bitrate (VAAPI has no 2-pass); the size check below tightens it if needed
   const gpuPass = async (kbps, from, span) => {
     const rate = kbps ? ['-rc_mode', 'VBR', '-b:v', `${kbps}k`, '-maxrate', `${Math.round(kbps * 1.5)}k`, '-bufsize', `${kbps * 2}k`] : ['-rc_mode', 'CQP', '-qp', '20'];
-    await run(FFMPEG, [...input, ...common, ...rate, ...audio, ...meta, outFile], { duration: p.dur, onProgress: (f) => onProgress(from + f * span) });
+    const go = () => run(FFMPEG, [...input(), ...common(), ...rate, ...audio, ...meta, outFile], { duration: p.dur, onProgress: (f) => onProgress(from + f * span) });
+    try { await go(); } catch (e) {
+      if (gpuMode !== 'full') throw e;
+      console.error('GPU decoding failed, decoding on the CPU:', e.message);
+      gpuMode = 'upload'; await go();
+    }
   };
 
   try {
@@ -363,7 +405,7 @@ export async function render(src, info, edit, outFile, tmpDir, onProgress = () =
       await gpuPass(p.cap ? Math.round(p.mode.kind === '2pass' ? p.mode.kbps * 0.97 : Math.min(p.ceiling, p.budget)) : 0, 0.05, 0.85);
     } else if (p.mode.kind === 'crf') {
       const rate = ['-crf', String(p.mode.crf), ...(p.mode.maxrate ? ['-maxrate', `${p.mode.maxrate}k`, '-bufsize', `${p.mode.maxrate * 2}k`] : [])];
-      await run(FFMPEG, [...input, ...common, ...rate, ...audio, ...meta, outFile], { duration: p.dur, onProgress: (f) => onProgress(0.05 + f * 0.85) });
+      await run(FFMPEG, [...input(), ...common(), ...rate, ...audio, ...meta, outFile], { duration: p.dur, onProgress: (f) => onProgress(0.05 + f * 0.85) });
     } else {
       await twoPass(p.mode.kbps, 0, 0.9);
     }
@@ -379,6 +421,7 @@ export async function render(src, info, edit, outFile, tmpDir, onProgress = () =
     for (const f of fs.readdirSync(tmpDir)) if (f.startsWith(path.basename(passlog))) fs.rmSync(path.join(tmpDir, f), { force: true });
   }
   onProgress(1);
+  console.log(`rendered ${path.basename(outFile)}: ${p.dur.toFixed(1)} s at ${p.w}x${p.h} ${p.fps} fps in ${((Date.now() - t0) / 1000).toFixed(1)} s (${gpuMode ? `gpu ${gpuMode}` : 'cpu'}, ${p.mode.kind})`);
   return { bytes: fs.statSync(outFile).size, plan: p, gpu: useGpu, loudness: loud && { measured: loud.I, target: LOUDNESS.I } };
 }
 
