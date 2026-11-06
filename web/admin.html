@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Users</title>
+<link rel="icon" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/app.css">
+<script type="module" src="/static/admin.js"></script>
+</head>
+<body>
+<header class="top"></header>
+<main>
+  <div class="stats" id="stats"></div>
+
+  <h2 class="section">Add someone</h2>
+  <form class="panel" id="addForm">
+    <div class="form-row">
+      <div><label for="newName">Name</label><input type="text" id="newName" maxlength="40" placeholder="e.g. Alex" required></div>
+      <div><label for="newQuota">Storage limit (GB)</label><input type="number" id="newQuota" min="0" step="1"></div>
+      <div><label for="newPw">Password <span class="muted">(leave empty to generate a strong one)</span></label><input type="text" id="newPw" autocomplete="off" placeholder="generated"></div>
+      <button class="primary" type="submit">Create</button>
+    </div>
+    <div class="hint">Everyone signs in with just their password, so each person's password is different. You'll see it once: send it to them privately.</div>
+    <div id="newResult"></div>
+  </form>
+
+  <h2 class="section">People <span class="count" id="userCount">0</span></h2>
+  <div class="panel" style="padding:6px 8px;overflow-x:auto">
+    <table class="users">
+      <thead><tr><th>Name</th><th>Uploads / clips</th><th>Storage</th><th class="hide-sm">Last sign-in</th><th></th></tr></thead>
+      <tbody id="users"></tbody>
+    </table>
+  </div>
+  <p class="hint">Deleting someone asks whether to keep their clips online (they become yours) or delete everything they uploaded.
+    Disabling signs them out and blocks their password; their clips stay online.</p>
+</main>
+</body>
+</html>

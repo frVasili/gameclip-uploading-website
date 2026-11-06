@@ -1,0 +1,11 @@
+{
+  "name": "gameclip-uploading-website",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted game clip editor and sharing site with Discord embeds",
+  "scripts": {
+    "server": "node server/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=22" }
+}

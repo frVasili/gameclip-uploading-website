@@ -1,0 +1,7 @@
+node_modules/
+*.log
+.env
+data/
+# the owner's own deployment notes and config: never committed
+local/
+CLAUDE.local.md

@@ -1,0 +1,23 @@
+# Public site through a Cloudflare Tunnel: no open ports, your home IP stays hidden.
+# 1. In the Cloudflare dashboard: Zero Trust > Networks > Tunnels > create a tunnel, copy its token.
+# 2. Add a public hostname (e.g. clips.example.com) pointing to http://clips:8080
+# 3. In .env: TUNNEL_TOKEN=..., PUBLIC_URL=https://clips.example.com, TRUST_PROXY=cloudflare
+# 4. docker compose -f compose.cloudflared.yml up -d
+services:
+  clips:
+    image: ghcr.io/frvasili/gameclip-uploading-website:latest
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on: [clips]

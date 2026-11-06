@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Clips</title>
+<link rel="icon" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/app.css">
+<script type="module" src="/static/library.js"></script>
+</head>
+<body>
+<header class="top" hidden></header>
+
+<main id="login" hidden>
+  <div class="login">
+    <img class="logo" src="/static/favicon.svg" alt="">
+    <h1 id="loginTitle">Clips</h1>
+    <p>Trim your game clips, fix the audio and get a link that plays right in Discord.</p>
+    <form class="panel" id="loginForm">
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password" required autofocus>
+      <div class="small bad" id="loginError" style="margin-top:8px" hidden></div>
+      <button class="primary" type="submit">Sign in</button>
+    </form>
+    <p class="small" style="margin-top:16px">No password? Ask whoever runs this site for one.</p>
+  </div>
+</main>
+
+<main id="app" hidden>
+  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Upload a video">
+    <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg></div>
+    <div><strong>Drop a recording here</strong>
+      <span class="muted">or click to choose · MP4, MKV, MOV, WebM… · several audio tracks are fine · big files resume if the connection drops</span></div>
+    <input type="file" id="file" accept="video/*,.mkv,.flv,.ts,.mts,.m2ts" multiple hidden>
+  </div>
+  <div class="toolbar">
+    <div class="usage" id="usage" hidden><span id="usageText"></span><div class="meter" id="usageMeter"><div></div></div></div>
+    <span class="grow"></span>
+    <label class="inline" id="ownerFilterWrap" hidden>Show <select id="ownerFilter" style="width:auto"></select></label>
+  </div>
+  <div class="uploads" id="uploads"></div>
+
+  <h2 class="section">Clips <span class="count" id="clipCount">0</span></h2>
+  <div class="grid" id="clips"><div class="empty">Loading…</div></div>
+
+  <h2 class="section">Recordings <span class="count" id="recCount">0</span></h2>
+  <div id="sources"></div>
+  <p class="hint" id="retention" hidden></p>
+</main>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# Plain setup: the site on a local port. Put your own reverse proxy (Caddy, Nginx Proxy Manager, Traefik...)
+# with HTTPS in front of it, or see examples/ for Cloudflare Tunnel and Tailscale setups.
+#   cp .env.example .env   # set ADMIN_PASSWORD and PUBLIC_URL
+#   docker compose up -d
+services:
+  clips:
+    image: ghcr.io/frvasili/gameclip-uploading-website:latest
+    container_name: clips
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8080:8080"     # loopback only: reach it through your reverse proxy
+    volumes:
+      - ./data:/data              # recordings, clips, users. Must be writable by uid 1000
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # Optional GPU encoding (AMD/Intel): set VAAPI_DEVICE=/dev/dri/renderD128 in .env and uncomment.
+    # group_add needs the numeric id of the host's "render" group: getent group render
+    # devices:
+    #   - /dev/dri/renderD128:/dev/dri/renderD128
+    # group_add:
+    #   - "105"

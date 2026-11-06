@@ -1,0 +1,33 @@
+# Private site on your tailnet only, with HTTPS, without installing anything on the host.
+# 1. Make an auth key: https://login.tailscale.com/admin/settings/keys
+# 2. In .env: TS_AUTHKEY=tskey-..., and leave PUBLIC_URL empty (or set https://clips.<your-tailnet>.ts.net)
+# 3. docker compose -f compose.tailscale.yml up -d  ->  https://clips.<your-tailnet>.ts.net
+# Note: links are then only reachable on your tailnet. For Discord embeds anyone must be able to open them,
+# so use the Cloudflare example (or Tailscale Funnel) for the public side.
+services:
+  tailscale:
+    image: tailscale/tailscale:latest
+    hostname: clips
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+    volumes:
+      - ./tailscale-state:/var/lib/tailscale
+      - ./tailscale/serve.json:/config/serve.json:ro
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add: [NET_ADMIN]
+  clips:
+    image: ghcr.io/frvasili/gameclip-uploading-website:latest
+    restart: unless-stopped
+    network_mode: service:tailscale
+    env_file: .env
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on: [tailscale]

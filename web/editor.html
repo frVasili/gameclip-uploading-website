@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Edit clip</title>
+<link rel="icon" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/app.css">
+<script type="module" src="/static/editor.js"></script>
+</head>
+<body>
+<header class="top"></header>
+<main>
+  <div class="editor">
+    <div class="left">
+      <section class="panel">
+        <div class="player">
+          <video id="video" playsinline muted preload="auto"></video>
+          <div class="fade" id="fadeOverlay"></div>
+          <div class="overlay" id="overlay">Loading…</div>
+        </div>
+        <div class="transport row">
+          <button class="play" id="play" title="Play / pause (Space)">▶ Play</button>
+          <span class="time" id="time">0:00.0 / 0:00.0</span>
+          <label class="inline"><input type="checkbox" id="loop" checked> Loop trim</label>
+          <span class="grow"></span>
+          <button id="setStart" title="Start the clip at the playhead (I)">Set start <kbd>I</kbd></button>
+          <button id="setEnd" title="End the clip at the playhead (O)">Set end <kbd>O</kbd></button>
+          <button id="setThumb" title="Use the frame at the playhead as the Discord thumbnail (T)">Thumbnail <kbd>T</kbd></button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="row spread"><h2 style="margin:0">Trim</h2>
+          <div class="row"><button class="small" id="zoomOut" title="Zoom out">−</button><button class="small" id="zoomFit">Fit</button><button class="small" id="zoomIn" title="Zoom in">+</button><button class="small" id="zoomSel" title="Zoom to the trimmed part">Zoom to clip</button></div></div>
+        <div class="timeline-wrap" style="margin-top:10px"><canvas class="timeline" id="timeline"></canvas></div>
+        <div class="trimfields">
+          <div><label for="start">Start</label><input type="text" id="start" inputmode="decimal"></div>
+          <div><label for="end">End</label><input type="text" id="end" inputmode="decimal"></div>
+          <div><label>Length</label><div class="dur" id="dur">-</div></div>
+          <button id="resetTrim" title="Use the whole recording">Whole video</button>
+        </div>
+        <div class="hint">Drag the purple handles to trim · click or drag to move the playhead · scroll to zoom, Shift+scroll to pan ·
+          <kbd>Space</kbd> play · <kbd>←</kbd><kbd>→</kbd> one frame (<kbd>Shift</kbd> 1 s) · <kbd>Home</kbd>/<kbd>End</kbd> jump to start/end</div>
+      </section>
+
+      <section class="panel">
+        <h2>Audio</h2>
+        <div id="tracks"></div>
+        <div class="hint" id="mixHint">Discord only plays one audio track, so these are mixed together. Solo = mute all the others.</div>
+        <div class="hint"><b>Even out</b> fixes volume differences <i>inside</i> a track (a quiet mic next to loud friends): Light keeps it natural, Strong makes everyone about equally loud but also squashes loud game moments. You hear it in the preview.</div>
+        <div class="row" style="margin-top:10px">
+          <label class="inline" title="One constant volume change so the clip is as loud as typical YouTube/Discord videos (-14 LUFS). Doesn't change the balance."><input type="checkbox" id="normalize" checked> Normalize loudness <span class="muted small">(−14 LUFS, applied on export)</span></label>
+          <span class="grow"></span>
+          <button class="small" id="matchLevels" title="Measure each track and set the sliders so they're about equally loud">Match track levels</button>
+        </div>
+        <div class="fades">
+          <div><label for="fadeIn">Fade in (seconds)</label><input type="number" id="fadeIn" min="0" max="10" step="0.1" value="0"></div>
+          <div><label for="fadeOut">Fade out (seconds)</label><input type="number" id="fadeOut" min="0" max="10" step="0.1" value="0"></div>
+        </div>
+        <label class="inline" style="margin-top:10px"><input type="checkbox" id="videoFade"> Also fade the picture from/to black</label>
+      </section>
+    </div>
+
+    <div class="right">
+      <section class="panel">
+        <h2>Export</h2>
+        <label for="title">Title (shown in the Discord embed)</label>
+        <input type="text" id="title" maxlength="200">
+        <label for="preset">Size</label>
+        <select id="preset"></select>
+        <div class="row" style="gap:10px">
+          <div class="grow"><label for="resolution">Resolution</label>
+            <select id="resolution"><option value="auto">Auto (best for the size)</option><option value="source">Original</option>
+              <option value="2160">2160p</option><option value="1440">1440p</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option></select></div>
+          <div class="grow"><label for="fps">Frame rate</label>
+            <select id="fps"><option value="source">Original</option><option value="60">60 fps</option><option value="30">30 fps</option></select></div>
+        </div>
+        <label class="inline" id="gpuWrap" style="margin-top:12px" hidden title="Encodes on the graphics card: much faster, but needs more MB for the same quality"><input type="checkbox" id="gpu"> Fast GPU encode <span class="muted small">(quicker, slightly lower quality)</span></label>
+        <div class="plan" id="plan">…</div>
+        <button class="primary export-btn" id="export">Export &amp; get link</button>
+        <div id="result"></div>
+      </section>
+      <section class="panel" id="exportsPanel" hidden>
+        <h2>Clips from this video</h2>
+        <div class="list" id="exports"></div>
+      </section>
+    </div>
+  </div>
+</main>
+</body>
+</html>
