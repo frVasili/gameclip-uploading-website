@@ -239,11 +239,19 @@ export function filters(info, edit, p, loud = null, gpu = false) {
 export const gpu = { device: config.vaapiDevice, available: false, error: config.vaapiDevice ? 'not checked yet' : 'not configured (VAAPI_DEVICE)' };
 export async function detectGpu() {
   if (!config.vaapiDevice) return gpu;
-  try {
-    await run(FFMPEG, ['-hide_banner', '-nostdin', '-v', 'error', '-init_hw_device', `vaapi=va:${config.vaapiDevice}`, '-filter_hw_device', 'va',
-      '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:duration=1', '-vf', 'format=nv12,hwupload', '-c:v', 'h264_vaapi', '-f', 'null', '-'], { nice: false });
-    Object.assign(gpu, { available: true, error: null });
-  } catch (e) { Object.assign(gpu, { available: false, error: e.message.slice(0, 300) }); }
+  // verbose, so libva says which driver it tried and why it failed
+  const r = await new Promise((resolve) => {
+    const child = spawn(FFMPEG, ['-hide_banner', '-nostdin', '-v', 'verbose', '-init_hw_device', `vaapi=va:${config.vaapiDevice}`, '-filter_hw_device', 'va',
+      '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:duration=1', '-vf', 'format=nv12,hwupload', '-c:v', 'h264_vaapi', '-f', 'null', '-'],
+    { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, LIBVA_MESSAGING_LEVEL: '2' } });
+    let err = '';
+    child.stderr.on('data', (d) => { err = (err + d).slice(-20000); });
+    child.on('error', (e) => resolve({ code: -1, err: e.message }));
+    child.on('close', (code) => resolve({ code, err }));
+  });
+  const info = r.err.split('\n').filter((l) => /libva|vaapi|VA-API|Driver|driver|error|fail/i.test(l)).slice(-8).join(' | ');
+  if (r.code === 0) Object.assign(gpu, { available: true, error: null, info: info.slice(0, 500) });
+  else Object.assign(gpu, { available: false, error: (info || r.err.split('\n').slice(-3).join(' | ')).slice(0, 700) });
   return gpu;
 }
 
