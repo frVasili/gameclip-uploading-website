@@ -531,15 +531,20 @@ async function load() {
   renderExports();
   requestAnimationFrame(frame);
 }
-// The converted preview (light, plays everywhere) when it's done; until then the recording itself if this
-// browser can play its codec (most can play HEVC from OBS now); else wait for the preview.
+// The recording itself if this browser can play its codec (most can play HEVC from OBS now); else (or if it
+// fails to play) the server converts a preview, and the editor waits for it. Uploads browsers all play have
+// preview.mp4 from the start (preview absent or 'ready').
 let noDirect = false;
 const stage = overlay.parentNode;
 async function loadVideo() {
   const playsDirect = () => !noDirect && source.direct && source.directFile && video.canPlayType(`video/mp4; codecs="${source.direct}"`) !== '';
-  while (source.preview === 'converting' || source.preview === 'error') {
+  let asked = false;
+  while (source.preview && source.preview !== 'ready') {
     if (playsDirect()) { video.src = `${base}/original.mp4`; return; }
-    if (source.preview === 'error') throw new Error(`This video could not be prepared for this browser: ${source.previewError || 'conversion failed'}`);
+    if (source.preview !== 'converting') {   // 'needed', or 'error' from an earlier try: ask (again) once
+      if (asked) throw new Error(`This video could not be prepared for this browser: ${source.previewError || 'conversion failed'}`);
+      asked = true; source = await api(`${base}/preview`, { method: 'POST' }); continue;
+    }
     const j = source.jobs?.find((x) => x.kind === 'preview');
     if (!overlay.isConnected) stage.append(overlay);
     overlay.innerHTML = `<div>Converting the video so this browser can play it…<br><span class="muted">${esc(j ? jobText(j) : '')}</span></div>`;

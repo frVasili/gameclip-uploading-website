@@ -15,8 +15,7 @@ let FFMPEG_VERSION = 'unknown';
 try { FFMPEG_VERSION = execFileSync(process.env.FFMPEG || 'ffmpeg', ['-version']).toString().split('\n')[0].replace(/ Copyright.*/, ''); } catch { /* unknown */ }
 detectGpu().then((g) => console.log(g.available ? `GPU encoding available (${g.device})` : `GPU encoding off: ${g.error}`));
 
-// ---- job queue: one ffmpeg job at a time. Converting previews waits behind everything else: the editor
-// already works without it in most browsers, and exports shouldn't wait for it. ----
+// ---- job queue: one ffmpeg job at a time ----
 const jobs = new Map();
 const queue = [];
 let running = null;
@@ -28,8 +27,7 @@ function enqueue(job) {
 }
 async function pump() {
   if (running || !queue.length) return;
-  const i = queue.findIndex((j) => j.kind !== 'preview');
-  running = queue.splice(i < 0 ? 0 : i, 1)[0];
+  running = queue.shift();
   running.state = 'running'; running.started = Date.now();
   try {
     await running.run((f) => { running.progress = Math.round(f * 1000) / 1000; });
@@ -48,8 +46,7 @@ async function pump() {
 // error text shown to users: no server paths, no ffmpeg noise
 export const userError = (msg) => String(msg || '').replace(/(?:\/[\w.@+-]+)+\/?/g, 'the file').replace(/\s*\|\s*Last message repeated \d+ times/g, '').slice(0, 300);
 const jobView = (j) => j && { id: j.id, kind: j.kind, state: j.state, progress: j.progress, error: j.error && userError(j.error),
-  clipId: j.clipId, sourceId: j.sid, position: j.state === 'queued' ? queueOrder().indexOf(j) + 1 : 0 };
-const queueOrder = () => [...queue.filter((j) => j.kind !== 'preview'), ...queue.filter((j) => j.kind === 'preview')];
+  clipId: j.clipId, sourceId: j.sid, position: j.state === 'queued' ? queue.indexOf(j) + 1 : 0 };
 const activeJobsOf = (owner) => [...jobs.values()].filter((j) => j.owner === owner && (j.state === 'queued' || j.state === 'running')).length;
 
 function prepareJob(s) {
@@ -64,11 +61,12 @@ function prepareJob(s) {
       Object.assign(m, { status: 'ready', preview: r.preview });
       if (r.direct) Object.assign(m, { direct: r.direct, directFile: r.directFile });
       store.saveSource(m);
-      if (r.preview === 'converting') previewJob(m);
     },
     onError: (e) => { const m = store.getSource(s.id); if (m) { m.status = 'error'; m.error = userError(e.message); store.saveSource(m); } },
   });
 }
+// Converting the preview only when an editor asks for it (its browser can't play the recording itself), so it
+// doesn't keep the GPU/CPU busy or hold up exports for nothing.
 function previewJob(s) {
   return enqueue({
     kind: 'preview', sid: s.id, owner: s.owner,
@@ -361,6 +359,14 @@ export async function handleApi(req, res, url, user) {
         return json(res, 200, out);
       } catch (e) { return json(res, 500, { error: userError(e.message) }); }
     }
+    if (sub === 'preview' && m === 'POST') {
+      if (s.status !== 'ready') return json(res, 409, { error: 'this upload is still being prepared' });
+      if (s.preview === 'needed' || s.preview === 'error') {
+        s.preview = 'converting'; delete s.previewError; store.saveSource(s);
+        previewJob(s);
+      }
+      return json(res, 200, sourceView(req, s));
+    }
     if (sub === 'plan' && m === 'POST') {
       try { return json(res, 200, plan(s.info, cleanEdit(s.info, await body(req)))); } catch (e) { return sendErr(res, e); }
     }
@@ -375,7 +381,7 @@ export async function handleApi(req, res, url, user) {
       const f = /^(preview\.mp4|audio-\d+(?:-(?:light|strong))?\.m4a|peaks-\d+(?:-(?:light|strong))?\.json)$/.exec(sub);
       if (f) return sendFile(req, res, path.join(store.sourceDir(s.id), f[1]), { 'Cache-Control': 'private, max-age=86400' });
       // the recording itself, for browsers that can play it while the preview is converted
-      if (sub === 'original.mp4' && s.directFile) return sendFile(req, res, path.join(store.sourceDir(s.id), s.directFile), { 'Content-Type': 'video/mp4', 'Cache-Control': 'private, max-age=86400' });
+      if (sub === 'original.mp4' && s.directFile && s.preview !== 'ready') return sendFile(req, res, path.join(store.sourceDir(s.id), s.directFile), { 'Content-Type': 'video/mp4', 'Cache-Control': 'private, max-age=86400' });
     }
   }
 

@@ -22,8 +22,8 @@ test('prepare: preview, per-track audio + peaks; copies and silent tracks are fl
   assert.ok(!fs.readdirSync(dir).some((f) => f.endsWith('.tmp')), 'temporary PCM files are removed');
   const codec = execFileSync(process.env.FFPROBE || 'ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', path.join(dir, 'audio-0.m4a')]);
   assert.equal(String(codec).trim(), 'aac', 'AAC tracks are copied as they are');
-  // mpeg4 plays in no browser: no direct playing, the preview is converted afterwards
-  assert.equal(r.preview, 'converting'); assert.equal(r.direct, undefined);
+  // mpeg4 plays in no browser: no direct playing, the preview has to be converted
+  assert.equal(r.preview, 'needed'); assert.equal(r.direct, undefined);
   assert.ok(!fs.existsSync(path.join(dir, 'preview.mp4')));
   await convertPreview(src, dir, info);
   assert.equal((await probe(path.join(dir, 'preview.mp4'))).vcodec, 'h264');
@@ -38,7 +38,7 @@ test('prepare: HEVC in MP4 is played as it is until the preview is converted; in
     execFileSync(process.env.FFMPEG || 'ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=320x240:r=30:d=2', '-f', 'lavfi', '-i', 'sine=440:d=2',
       '-c:v', 'libx265', '-preset', 'ultrafast', '-tag:v', 'hvc1', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', src]);
     const r = await prepare(src, dir, await probe(src));
-    assert.equal(r.preview, 'converting'); assert.equal(r.direct, 'hvc1.1.6.L153.B0');
+    assert.equal(r.preview, 'needed'); assert.equal(r.direct, 'hvc1.1.6.L153.B0');
     assert.equal(r.directFile, ext === 'mp4' ? 'in.mp4' : 'original.mp4');
     if (ext === 'mkv') assert.equal((await probe(path.join(dir, 'original.mp4'))).vcodec, 'hevc');
   }

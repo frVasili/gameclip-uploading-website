@@ -57,8 +57,8 @@ For AMD or Intel graphics: set `VAAPI_DEVICE=/dev/dri/renderD128` in `.env`, the
 `group_add` in the compose file. `group_add` needs the id from `getent group render`. The admin page shows
 whether it works. Exports then get a "Fast GPU encode" checkbox (ticked by default with `GPU_DEFAULT=true`): it's much faster, but needs more MB for the same
 quality. With GPU decoding these exports also leave the CPU mostly free. The GPU also converts uploads not every browser
-can play (e.g. HEVC from OBS) into the editor's preview; browsers that can play them (most can play HEVC now) can start
-editing right away and don't wait for that. (NVIDIA isn't supported yet.)
+can play (e.g. HEVC from OBS) into the editor's preview; that only happens when someone opens the editor in a browser that can't play
+the recording itself (most browsers can play HEVC now, and start editing right away). (NVIDIA isn't supported yet.)
 
 ### Settings
 

@@ -25,8 +25,8 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 **Source** (an uploaded recording):
 ```
 { id: "16 chars", owner, ownerName, name, size, created, status: "queued"|"preparing"|"ready"|"error", error?,
-  preview?: "converting"|"ready"|"error", previewError?,   // the editor's H.264 preview.mp4 (absent = ready)
-  direct?: "hvc1.1.6.L153.B0",   // codec string: if video.canPlayType() says yes, original.mp4 plays meanwhile
+  preview?: "needed"|"converting"|"ready"|"error", previewError?,   // the editor's H.264 preview.mp4 (absent = ready)
+  direct?: "hvc1.1.6.L153.B0",   // codec string: if video.canPlayType() says yes, original.mp4 plays instead
   info: { duration, width, height, fps, vcodec, vprofile?, vtag?, pixFmt, container, bitrate,
           audio: [ { n, codec, channels, layout, title, language, silent?, sameAs? } ] },  // after preparing: silent track, or
                                                    // sameAs = n of an earlier track with exactly the same sound
@@ -64,10 +64,11 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 | GET / PATCH / DELETE | `/api/sources/<sid>` | read; `{ edit?, name? }` autosave; delete the recording (its clips stay online) |
 | POST | `/api/sources/<sid>/plan` | Edit → `{ w, h, fps, dur, audioKbps, cap, estBytes, mode, activeTracks, … }` or 400 |
 | POST | `/api/sources/<sid>/export` | Edit → 202 Job. 409 not ready, 429 too many waiting exports (friends) |
+| POST | `/api/sources/<sid>/preview` | → Source. Starts converting preview.mp4 if `preview` is "needed" or "error" (the editor calls this when the browser can't play the recording) |
 | POST | `/api/sources/<sid>/leveled` | `{ n, level }` → `{ url, peaks }` leveled preview of a track (made once, cached) |
 | POST | `/api/sources/<sid>/loudness` | `{ tracks: [{ n, level }] }` → `[{ n, level, lufs }]` |
 | DELETE | `/api/sources/<sid>/exports/<clipId>` | dismiss a failed export (a finished one is deleted with its clip) |
-| GET | `/api/sources/<sid>/preview.mp4`, `original.mp4` (while `preview` is converting, if `direct`), `audio-<n>[-light\|-strong].m4a`, `peaks-<n>[-light\|-strong].json` | editor media |
+| GET | `/api/sources/<sid>/preview.mp4`, `original.mp4` (if `direct` and the preview isn't made), `audio-<n>[-light\|-strong].m4a`, `peaks-<n>[-light\|-strong].json` | editor media |
 | GET | `/api/jobs/<id>` | Job |
 | GET | `/api/clips[?owner=<id>]` | Clip[] |
 | GET / PATCH / DELETE | `/api/clips/<id>` | read; `{ title }`; delete (the link stops working) |

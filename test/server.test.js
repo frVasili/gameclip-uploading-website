@@ -141,6 +141,8 @@ test('upload in pieces, prepare, export, public page; others cannot see it', { s
   const sid = r.json.id;
   assert.equal(r.json.ownerName, 'Alex');
   for (let i = 0; i < 100 && (await alex(`/api/sources/${sid}`)).json.status !== 'ready'; i++) await new Promise((x) => setTimeout(x, 300));
+  const pv = await alex(`/api/sources/${sid}/preview`, { method: 'POST' });   // H.264: preview made already, nothing to convert
+  assert.equal(pv.status, 200); assert.equal(pv.json.preview, 'ready'); assert.equal(pv.json.jobs.length, 0);
   // the admin sees it, an anonymous visitor does not, and a second friend does not
   assert.equal((await admin(`/api/sources/${sid}`)).status, 200);
   assert.equal((await anon(`/api/sources/${sid}`)).status, 401);

@@ -126,10 +126,10 @@ export async function probe(file) {
 // Editor files, made right after an upload: each audio track separately (copied as is when browsers can play
 // it, which is quick), waveform peaks, and a way to show the video:
 //  - H.264 that every browser plays: copied into preview.mp4, done.
-//  - Anything else (e.g. HEVC from OBS): convertPreview() makes a 720p H.264 preview.mp4 later, as its own
-//    job. Until then the editor shows the recording itself to browsers that can play its codec (most can play
-//    HEVC now): the source file when it is an MP4/MOV, else a copy of its video stream in original.mp4.
-// Returns { audio: [{ n, silent, sameAs }], preview: 'ready'|'converting', direct?, directFile? } where sameAs is
+//  - Anything else (e.g. HEVC from OBS): the editor shows the recording itself to browsers that can play its
+//    codec (most can play HEVC now): the source file when it is an MP4/MOV, else a copy of its video stream in
+//    original.mp4. Other browsers ask for convertPreview(), which makes a 720p H.264 preview.mp4.
+// Returns { audio: [{ n, silent, sameAs }], preview: 'ready'|'needed', direct?, directFile? } where sameAs is
 // the n of an earlier track with exactly the same decoded sound (OBS can write the same mix to several tracks)
 // and direct is the codec string the browser checks (canPlayType) before playing directFile.
 export async function prepare(src, dir, info, onProgress = () => {}) {
@@ -176,7 +176,7 @@ export async function prepare(src, dir, info, onProgress = () => {}) {
       return { n: a.n, silent, sameAs };
     });
     onProgress(1);
-    return { audio: facts, preview: playable ? 'ready' : 'converting', ...(direct ? { direct, directFile: asIs ? path.basename(src) : 'original.mp4' } : {}) };
+    return { audio: facts, preview: playable ? 'ready' : 'needed', ...(direct ? { direct, directFile: asIs ? path.basename(src) : 'original.mp4' } : {}) };
   } finally {
     for (const a of info.audio) fs.rmSync(pcm(a.n), { force: true });
   }
@@ -194,7 +194,7 @@ export function directCodec(info) {
   return null;
 }
 
-// The 720p H.264 preview for videos browsers can't all play. Runs as its own job after prepare(); the GPU does
+// The 720p H.264 preview for videos browsers can't all play, when an editor asks for it; the GPU does
 // decode, scaling and encoding when there is one (PREVIEW_HW). Returns a line for the log.
 export async function convertPreview(src, dir, info, onProgress = () => {}) {
   const outH = even(Math.min(720, info.height)), outW = even(outH * info.width / info.height);
