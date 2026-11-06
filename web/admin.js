@@ -16,7 +16,7 @@ async function load() {
   $('#stats').innerHTML = [
     ['Free disk space', st.diskFree != null ? fmtBytes(st.diskFree) : '?'],
     ['Encodes running / waiting', String(st.queue)],
-    ['GPU encoding', g.available ? `<span class="ok">available</span> <span class="small muted">${esc(g.device)}</span>` : `<span class="muted">off</span> <span class="small muted" title="${esc(g.error || '')}">${esc((g.error || '').slice(0, 60))}</span>`],
+    ['GPU encoding', g.available ? `<span class="ok">available</span> <span class="small muted">${esc(g.device)}${g.default ? ' · on by default' : ' · off by default'}</span>` : `<span class="muted">off</span> <span class="small muted" title="${esc(g.error || '')}">${esc((g.error || '').slice(0, 60))}</span>`],
     ['Recordings auto-delete', st.retentionDays ? `after ${st.retentionDays} days` : 'never'],
     ['ffmpeg', `<span class="small">${esc(st.ffmpeg)}</span>`],
   ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');

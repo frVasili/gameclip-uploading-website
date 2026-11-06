@@ -173,9 +173,9 @@ export async function handleApi(req, res, url, user) {
   if (p === '/api/status' && m === 'GET') {
     const out = { user: { ...user, ...usageView(user) }, queue: queue.length + (running ? 1 : 0), siteName: config.siteName,
       presets: Object.fromEntries(Object.entries(PRESETS).map(([k, v]) => [k, { label: v.label, cap: v.cap }])),
-      leveling: Object.keys(LEVELING), loudnessTarget: LOUDNESS.I, gpu: { available: gpu.available },
+      leveling: Object.keys(LEVELING), loudnessTarget: LOUDNESS.I, gpu: { available: gpu.available, default: gpu.available && config.gpuDefault },
       chunkSize: config.chunkBytes, maxUpload: config.maxUploadBytes, publicBase: publicBase(req) };
-    if (user.admin) Object.assign(out, { diskFree: store.diskFree(), ffmpeg: FFMPEG_VERSION, gpu: { ...gpu }, running: jobView(running),
+    if (user.admin) Object.assign(out, { diskFree: store.diskFree(), ffmpeg: FFMPEG_VERSION, gpu: { ...gpu, default: gpu.available && config.gpuDefault }, running: jobView(running),
       retentionDays: config.sourceRetentionDays });
     return json(res, 200, out);
   }

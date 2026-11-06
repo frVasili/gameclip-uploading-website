@@ -38,6 +38,7 @@ export const config = {
   encodeNice: num('ENCODE_NICE', 15),
   // Optional hardware encoding (AMD/Intel VAAPI), e.g. /dev/dri/renderD128. Off when empty.
   vaapiDevice: str('VAAPI_DEVICE'),
+  gpuDefault: bool('GPU_DEFAULT', false),                     // tick "Fast GPU encode" by default on new edits
   embedCapMB: num('EMBED_CAP_MB', 250),                       // largest preset; see docs/discord-embeds.md
   secureCookies: str('SECURE_COOKIES', 'auto').toLowerCase(),  // auto | always | never
   logRequests: bool('ACCESS_LOG', true),

@@ -34,7 +34,7 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
   title, thumbTime,                             // thumbTime in source seconds, within start..end
   preset: "discord"|"medium"|"small"|"upload"|"original",
   resolution: "auto"|"source"|"2160"|"1440"|"1080"|"720"|"480", fps: "source"|"60"|"30",
-  gpu: bool }                                   // VAAPI encode if the server has it
+  gpu: bool }                                   // VAAPI encode if the server has it (default: GPU_DEFAULT)
 ```
 **Job**: `{ id: "10 chars", kind: "prepare"|"render", state: "queued"|"running"|"done"|"error", progress: 0..1, error?, clipId?, sourceId, position }`
 

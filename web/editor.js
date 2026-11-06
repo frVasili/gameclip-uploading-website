@@ -7,7 +7,7 @@ const COLORS = ['#7c5cff', '#3ecf8e', '#f5b84b', '#4bb8f5', '#ff5c7a', '#c77dff'
 const MIN_LEN = 0.5;
 
 const video = $('#video'), canvas = $('#timeline'), overlay = $('#overlay'), fadeOverlay = $('#fadeOverlay');
-let source, info, edit, presets = {};
+let source, info, edit, presets = {}, gpuDefault = false;
 let peaks = [];                 // per track: array of 0-255, 100 per second
 let view = { t0: 0, t1: 1 };    // visible timeline range (seconds)
 let dirtyWave = true;           // waveform cache needs a redraw
@@ -249,7 +249,7 @@ new ResizeObserver(() => { if (info) layout(); }).observe(canvas);
 // ======================= edit state =======================
 function defaultEdit() {
   return { start: 0, end: info.duration, tracks: info.audio.map((a) => ({ n: a.n, volume: 1, muted: false, level: 'off' })),
-    fadeIn: 0, fadeOut: 0, videoFade: false, normalize: true, gpu: false, title: '', thumbTime: Math.min(1, info.duration / 2),
+    fadeIn: 0, fadeOut: 0, videoFade: false, normalize: true, gpu: gpuDefault, title: '', thumbTime: Math.min(1, info.duration / 2),
     preset: 'discord', resolution: 'auto', fps: 'source' };
 }
 function normalize(e) {
@@ -488,6 +488,7 @@ async function load() {
   const status = await api('/api/status');
   presets = status.presets;
   $('#gpuWrap').hidden = !status.gpu?.available;
+  gpuDefault = !!status.gpu?.default;
   $('#preset').innerHTML = Object.entries(presets).map(([k, p]) => `<option value="${k}">${esc(p.label)}</option>`).join('');
 
   edit = normalize(source.edit);

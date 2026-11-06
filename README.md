@@ -54,7 +54,7 @@ The clip pages must be reachable from the internet for Discord embeds to work. E
 
 For AMD or Intel graphics: set `VAAPI_DEVICE=/dev/dri/renderD128` in `.env`, then uncomment `devices` and
 `group_add` in the compose file. `group_add` needs the id from `getent group render`. The admin page shows
-whether it works. Exports then get a "Fast GPU encode" checkbox: it's much faster, but needs more MB for the same
+whether it works. Exports then get a "Fast GPU encode" checkbox (ticked by default with `GPU_DEFAULT=true`): it's much faster, but needs more MB for the same
 quality. (NVIDIA isn't supported yet.)
 
 ### Settings
