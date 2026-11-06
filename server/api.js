@@ -195,7 +195,8 @@ function exportJob(s, edit) {
 
 // ---- views ----
 const clipView = (req, c) => c && { ...c, ownerName: auth.userName(c.owner),
-  sourceGone: !c.sourceId || !store.getSource(c.sourceId),   // the recording was deleted: the clip stays, no editing url: `${publicBase(req)}/${c.id}`, mp4: `${publicBase(req)}/${c.id}.mp4` };
+  sourceGone: !c.sourceId || !store.getSource(c.sourceId),   // the recording was deleted: the clip stays, no editing
+  url: `${publicBase(req)}/${c.id}`, mp4: `${publicBase(req)}/${c.id}.mp4` };
 function sourceView(req, s) {
   if (!s) return null;
   return { ...s, ownerName: auth.userName(s.owner),
