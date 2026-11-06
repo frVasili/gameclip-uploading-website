@@ -39,6 +39,8 @@ export const config = {
   // Optional hardware encoding (AMD/Intel VAAPI), e.g. /dev/dri/renderD128. Off when empty.
   vaapiDevice: str('VAAPI_DEVICE'),
   gpuDefault: bool('GPU_DEFAULT', false),                     // tick "Fast GPU encode" by default on new edits
+  // How the GPU helps make the editor preview of videos browsers can't play: full (decode + encode), decode, off
+  previewHw: ['full', 'decode', 'off'].includes(str('PREVIEW_HW')) ? str('PREVIEW_HW') : 'decode',
   embedCapMB: num('EMBED_CAP_MB', 250),                       // largest preset; see docs/discord-embeds.md
   secureCookies: str('SECURE_COOKIES', 'auto').toLowerCase(),  // auto | always | never
   logRequests: bool('ACCESS_LOG', true),

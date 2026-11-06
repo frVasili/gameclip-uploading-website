@@ -137,7 +137,10 @@ export async function prepare(src, dir, info, onProgress = () => {}) {
       : ['-map', '0:v:0', '-vf', `scale=${outW}:${outH}:flags=bicubic,format=yuv420p`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '30', '-threads', THREADS];
   const pcm = (n) => path.join(dir, `pcm-${n}.tmp`);
   const once = (mode) => {
-    const hw = mode === 'gpu' ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-hwaccel', 'vaapi', '-hwaccel_device', 'va', '-hwaccel_output_format', 'vaapi'] : [];
+    // 'gpu': decode, scale and encode on the GPU. 'hybrid': the GPU decodes (ffmpeg quietly decodes on the CPU
+    // if the GPU can't handle the codec), the CPU scales and encodes.
+    const hw = mode === 'gpu' ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-hwaccel', 'vaapi', '-hwaccel_device', 'va', '-hwaccel_output_format', 'vaapi']
+      : mode === 'hybrid' ? ['-hwaccel', 'vaapi', '-hwaccel_device', gpu.device] : [];
     const outs = [...video(mode), '-an', '-sn', '-dn', '-movflags', '+faststart', path.join(dir, 'preview.mp4')];
     for (const a of info.audio) {
       outs.push('-map', `0:a:${a.n}`, '-vn', '-sn', '-dn', '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-movflags', '+faststart', path.join(dir, `audio-${a.n}.m4a`));
@@ -147,13 +150,14 @@ export async function prepare(src, dir, info, onProgress = () => {}) {
       { duration: info.duration, onProgress: (f) => onProgress(f * 0.97) });
   };
   try {
-    if (playable) await once('copy');
-    else if (gpu.available) {
-      try { await once('gpu'); } catch (e) {   // e.g. a codec this GPU can't decode: do it all again on the CPU
-        console.error('GPU preview failed, using the CPU:', e.message);
-        await once('cpu');
-      }
-    } else await once('cpu');
+    const t0 = Date.now();
+    let mode = playable ? 'copy' : gpu.available && config.previewHw !== 'off' ? (config.previewHw === 'full' ? 'gpu' : 'hybrid') : 'cpu';
+    try { await once(mode); } catch (e) {
+      if (mode === 'copy' || mode === 'cpu') throw e;
+      console.error(`GPU preview (${mode}) failed, using the CPU:`, e.message);   // e.g. a codec this GPU can't decode
+      mode = 'cpu'; await once(mode);
+    }
+    console.log(`prepared ${path.basename(dir)}: ${Math.round(info.duration)} s of ${info.vcodec} ${info.width}x${info.height}, ${info.audio.length} audio track(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s (${mode})`);
 
     const seen = new Map();   // hash of the decoded sound -> first track with it
     const audio = info.audio.map((a) => {
