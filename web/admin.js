@@ -34,7 +34,7 @@ async function load() {
         : `<div class="row" style="flex-wrap:nowrap"><div class="meter ${f > 0.9 ? 'full' : ''}" style="width:90px"><div style="width:${f * 100}%"></div></div>
            <span class="small">${fmtBytes(u.used)} / ${fmtBytes(u.quota)}</span></div>`}</td>
       <td class="hide-sm small muted">${u.isAdmin ? 'set by the server config' : u.lastLogin ? ago(u.lastLogin) : 'never'}</td>
-      <td style="text-align:right;white-space:nowrap">${u.isAdmin ? '' : `
+      <td style="text-align:right;white-space:nowrap"><button class="small" data-rename="${u.isAdmin ? 'admin' : u.id}" data-name="${esc(u.name)}">Rename</button>${u.isAdmin ? '' : `
         <button class="small" data-reset="${u.id}" data-name="${esc(u.name)}">New password</button>
         <button class="small" data-quota="${u.id}" data-cur="${u.quota / 1e9}">Limit</button>
         <button class="small" data-toggle="${u.id}" data-dis="${u.disabled ? 1 : 0}">${u.disabled ? 'Enable' : 'Disable'}</button>
@@ -68,7 +68,14 @@ document.addEventListener('click', async (e) => {
       row.hidden = false; row.firstElementChild.innerHTML = secretBox(r.user.name, r.password);
       return;
     }
-    if (d.quota) {
+    if (d.rename) {
+      const name = prompt(`New name for ${d.name}:`, d.name);
+      if (name === null || name.trim() === d.name) return;
+      if (d.rename === 'admin') await api('/api/me', { method: 'PATCH', body: { name } });
+      else await api(`/api/users/${d.rename}`, { method: 'PATCH', body: { name } });
+      toast('Renamed');
+      if (d.rename === 'admin') { setTimeout(() => location.reload(), 600); return; }
+    } else if (d.quota) {
       const v = prompt('Storage limit in GB (recordings + clips):', d.cur);
       if (v === null) return;
       if (!(Number(v) >= 0)) return toast('Enter a number of GB', true);

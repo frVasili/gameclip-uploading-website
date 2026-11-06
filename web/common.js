@@ -27,8 +27,14 @@ export function renderHeader(user, siteName, { page = '', title = '' } = {}) {
     <nav><a href="/home" class="${page === 'home' ? 'active' : ''}">Library</a>${user.admin ? `<a href="/admin" class="${page === 'admin' ? 'active' : ''}">Users &amp; server</a>` : ''}</nav>
     ${title ? `<h1>${esc(title)}</h1>` : ''}
     <div class="right"><span class="status" id="saved"></span>
-      <span class="chip"><span class="avatar">${esc(initials(user.name))}</span>${esc(user.name)}</span>
+      <button class="chip" id="me" title="Change your name"><span class="avatar">${esc(initials(user.name))}</span>${esc(user.name)}</button>
       <button class="small ghost" id="logout">Sign out</button></div>`;
+  h.querySelector('#me').onclick = async () => {
+    const name = prompt('Your name (shown to the admin and under your clips as "by …"):', user.name);
+    if (name === null || name.trim() === user.name) return;
+    try { await api('/api/me', { method: 'PATCH', body: { name } }); toast('Name changed'); setTimeout(() => location.reload(), 600); }
+    catch (e) { toast(e.message, true); }
+  };
   h.querySelector('#logout').onclick = async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); location.href = '/home'; };
 }
 

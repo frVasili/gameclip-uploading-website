@@ -19,6 +19,7 @@ plays right inside Discord. Friends get their own password and their own library
 - **Links** like `https://clips.example.com/Xa83kd0QmP2z`: random and unguessable, so viewers can only see
   the clips they were sent.
 - **Friends:** the admin creates a password per person, with a storage limit. Everyone sees only their own uploads.
+  People can rename themselves (click your name at the top); the admin can rename anyone.
 - **Big uploads** go up in pieces and resume after a dropped connection. This also gets past Cloudflare's 100 MB request limit.
 - **Optional GPU encoding** (AMD/Intel VAAPI) for faster exports.
 - One container, no database, nothing phones home. Plain Node + ffmpeg.

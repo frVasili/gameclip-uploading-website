@@ -180,6 +180,12 @@ export async function handleApi(req, res, url, user) {
     return json(res, 200, out);
   }
 
+  // ---- your own account: rename yourself ----
+  if (p === '/api/me' && m === 'PATCH') {
+    try { const b = await body(req); auth.rename(user.id, b.name); return json(res, 200, { user: auth.getUser(user.id) }); }
+    catch (e) { return sendErr(res, e); }
+  }
+
   // ---- uploads (chunked) ----
   if (p === '/api/uploads' && m === 'POST') {
     try { const u = uploads.startUpload(user, await body(req)); return json(res, 201, { id: u.id, chunkSize: config.chunkBytes, received: 0, size: u.size }); }
@@ -316,7 +322,7 @@ export async function handleApi(req, res, url, user) {
     for (const c of store.listClips()) (counts[c.owner] ||= { uploads: 0, clips: 0 }).clips++;
     const view = (u) => ({ ...u, used: usage[u.id] || 0, ...(counts[u.id] || { uploads: 0, clips: 0 }) });
     if (p === '/api/users' && m === 'GET') {
-      return json(res, 200, { admin: { id: 'admin', name: 'Admin', used: usage.admin || 0, ...(counts.admin || { uploads: 0, clips: 0 }) },
+      return json(res, 200, { admin: { id: 'admin', name: auth.userName('admin'), used: usage.admin || 0, ...(counts.admin || { uploads: 0, clips: 0 }) },
         users: auth.listUsers().map(view), defaultQuotaGB: config.defaultQuotaBytes / 1e9 });
     }
     if (p === '/api/users' && m === 'POST') {

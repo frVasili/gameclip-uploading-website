@@ -144,6 +144,24 @@ test('upload in pieces, prepare, export, public page; others cannot see it', { s
   assert.equal((await anon(`/${j.clipId}`)).status, 404);
 });
 
+test('renaming: yourself, the admin renames anyone, names stay unique', async () => {
+  let r = await alex('/api/me', { method: 'PATCH', body: { name: '  Alexander   the  Great ' } });
+  assert.equal(r.status, 200, r.text); assert.equal(r.json.user.name, 'Alexander the Great');
+  assert.equal((await alex('/api/me')).json.user.name, 'Alexander the Great');
+  assert.equal((await alex('/api/me', { method: 'PATCH', body: { name: 'admin' } })).status, 400, "can't take the admin's name");
+  assert.equal((await alex('/api/me', { method: 'PATCH', body: { name: '   ' } })).status, 400, 'empty name');
+  r = await admin('/api/me', { method: 'PATCH', body: { name: 'Boss' } });
+  assert.equal(r.json.user.name, 'Boss'); assert.equal(r.json.user.admin, true);
+  assert.equal((await admin('/api/me')).json.user.name, 'Boss');
+  const users = (await admin('/api/users')).json;
+  assert.equal(users.admin.name, 'Boss');
+  const a = users.users.find((u) => u.name === 'Alexander the Great');
+  assert.equal((await admin(`/api/users/${a.id}`, { method: 'PATCH', body: { name: 'boss' } })).status, 400, 'duplicate of the admin, any case');
+  r = await admin(`/api/users/${a.id}`, { method: 'PATCH', body: { name: 'Alex' } });
+  assert.equal(r.status, 200); assert.equal(r.json.user.name, 'Alex');
+  assert.equal((await alex('/api/users/' + a.id, { method: 'PATCH', body: { name: 'x' } })).status, 403, 'friends cannot rename others');
+});
+
 test('disabling a user signs them out', async () => {
   const users = (await admin('/api/users')).json.users;
   const a = users.find((u) => u.name === 'Alex');

@@ -94,9 +94,11 @@ function pruneSessions() {
   for (const [k, s] of Object.entries(db.sessions)) if (s.expires < now) delete db.sessions[k];
 }
 
-export const ADMIN = { id: 'admin', name: 'Admin', admin: true };
+// The admin's display name can be changed (stored in auth.json); its id is always "admin".
+const adminName = () => db.adminName || 'Admin';
+const adminUser = () => ({ id: 'admin', name: adminName(), admin: true });
 function userById(id) {
-  if (id === 'admin') return ADMIN;
+  if (id === 'admin') return adminUser();
   const u = db.users.find((x) => x.id === id);
   return u && !u.disabled ? { id: u.id, name: u.name, admin: false, quota: u.quota } : null;
 }
@@ -118,7 +120,7 @@ export async function login(req, res, password) {
   let user = null;
   if (password && password.length <= 200) {
     const d = crypto.createHash('sha256').update(password).digest();
-    if (crypto.timingSafeEqual(d, adminDigest)) user = ADMIN;
+    if (crypto.timingSafeEqual(d, adminDigest)) user = adminUser();
     else {
       for (const u of db.users) {
         if (!u.disabled && await verifyPassword(password, u.hash)) { user = userById(u.id); break; }
@@ -149,7 +151,25 @@ const userView = (u) => ({ id: u.id, name: u.name, created: u.created, quota: u.
   lastLogin: Math.max(0, ...Object.values(db.sessions).filter((s) => s.uid === u.id).map((s) => s.created)) || null });
 export const listUsers = () => db.users.map(userView);
 export const getUser = (id) => userById(id);
-export const userName = (id) => (id === 'admin' ? 'Admin' : db.users.find((u) => u.id === id)?.name || 'deleted user');
+export const userName = (id) => (id === 'admin' ? adminName() : db.users.find((u) => u.id === id)?.name || 'deleted user');
+
+// Names: 1-40 characters, no control characters, unique (case-insensitive) across everyone incl. the admin.
+function cleanName(name, forId) {
+  const n = String(name ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+  if (!n) throw new Error('Give a name.');
+  const taken = (forId !== 'admin' && adminName().toLowerCase() === n.toLowerCase())
+    || db.users.some((u) => u.id !== forId && u.name.toLowerCase() === n.toLowerCase());
+  if (taken) throw new Error('Someone already has that name.');
+  return n;
+}
+// Rename anyone (the admin, or a user by id). Returns the new name.
+export function rename(id, name) {
+  const n = cleanName(name, id);
+  if (id === 'admin') db.adminName = n;
+  else { const u = db.users.find((x) => x.id === id); if (!u) throw new Error('No such user.'); u.name = n; }
+  save();
+  return n;
+}
 
 async function passwordInUse(pw, exceptId) {
   if (crypto.timingSafeEqual(crypto.createHash('sha256').update(pw).digest(), adminDigest)) return true;
@@ -162,9 +182,7 @@ function checkNewPassword(pw) {
 }
 
 export async function createUser({ name, password, quotaGB }) {
-  name = String(name || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 40);
-  if (!name) throw new Error('Give the user a name.');
-  if (db.users.some((u) => u.name.toLowerCase() === name.toLowerCase())) throw new Error('There is already a user with that name.');
+  name = cleanName(name, null);
   const pw = password ? String(password) : generatePassword();
   checkNewPassword(pw);
   if (await passwordInUse(pw)) throw new Error('That password is already used by someone else. Everyone signs in with just a password, so they have to be different.');
@@ -178,12 +196,7 @@ export async function updateUser(id, { name, quotaGB, disabled, resetPassword, p
   const u = db.users.find((x) => x.id === id);
   if (!u) throw new Error('No such user.');
   let newPassword = null;
-  if (name !== undefined) {
-    const n = String(name).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 40);
-    if (!n) throw new Error('Give the user a name.');
-    if (db.users.some((x) => x.id !== id && x.name.toLowerCase() === n.toLowerCase())) throw new Error('There is already a user with that name.');
-    u.name = n;
-  }
+  if (name !== undefined) u.name = cleanName(name, id);
   if (quotaGB !== undefined) u.quota = Math.max(0, Number(quotaGB) || 0) * 1e9;
   if (disabled !== undefined) u.disabled = !!disabled;
   if (resetPassword || password) {

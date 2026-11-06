@@ -16,6 +16,7 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 | POST | `/api/login` | `{ password }` → `{ user }` + cookie. 401 wrong, 429 too many tries (per IP, 15 min) |
 | POST | `/api/logout` | ends the session |
 | GET | `/api/me` | `{ user: { id, name, admin } \| null, siteName }` |
+| PATCH | `/api/me` | `{ name }` rename yourself (anyone signed in, the admin too) → `{ user }`. Names are 1-40 characters and unique, ignoring case |
 
 ## Objects
 **Source** (an uploaded recording):
@@ -71,7 +72,7 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 |---|---|---|
 | GET | `/api/users` | `{ admin: {…usage}, users: [ { id, name, created, quota, disabled, lastLogin, used, uploads, clips } ], defaultQuotaGB }` |
 | POST | `/api/users` | `{ name, quotaGB?, password? }` → `{ user, password }` (password generated if not given; shown only here) |
-| PATCH | `/api/users/<id>` | `{ name?, quotaGB?, disabled?, resetPassword?: true, password? }` → `{ user, password? }`. Disabling or a new password signs them out |
+| PATCH | `/api/users/<id>` | `{ name? (rename), quotaGB?, disabled?, resetPassword?: true, password? }` → `{ user, password? }`. Disabling or a new password signs them out |
 | DELETE | `/api/users/<id>?data=keep\|delete` | keep: their recordings/clips become the admin's; delete: removes them |
 
 Only one ffmpeg job runs at a time; the rest wait in a queue.
