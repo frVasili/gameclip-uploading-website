@@ -14,7 +14,7 @@
 <main>
   <div class="stats" id="stats"></div>
 
-  <h2 class="section">Add someone</h2>
+  <h2 class="section" id="addHeading">Add someone</h2>
   <form class="panel" id="addForm">
     <div class="form-row">
       <div><label for="newName">Name</label><input type="text" id="newName" maxlength="40" placeholder="e.g. Alex" required></div>
@@ -26,14 +26,14 @@
     <div id="newResult"></div>
   </form>
 
-  <h2 class="section">People <span class="count" id="userCount">0</span></h2>
+  <h2 class="section"><span id="peopleTitle">People</span> <span class="count" id="userCount">0</span></h2>
   <div class="panel" style="padding:6px 8px;overflow-x:auto">
     <table class="users">
       <thead><tr><th>Name</th><th>Uploads / clips</th><th>Storage</th><th class="hide-sm">Last sign-in</th><th></th></tr></thead>
       <tbody id="users"></tbody>
     </table>
   </div>
-  <p class="hint">Deleting someone asks whether to keep their clips online (they become yours) or delete everything they uploaded.
+  <p class="hint" id="peopleHint">Deleting someone asks whether to keep their clips online (they become yours) or delete everything they uploaded.
     Disabling signs them out and blocks their password; their clips stay online.</p>
 </main>
 </body>

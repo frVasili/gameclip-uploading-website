@@ -56,6 +56,18 @@ test('front door: / redirects to /home, API needs a login', async () => {
   assert.deepEqual((await anon('/api/me')).json.user, null);
 });
 
+test('pages link versioned assets that are cached forever; old/unversioned URLs are re-checked', async () => {
+  const home = await anon('/home');
+  const m = /\/static\/(v-[a-f0-9]{10})\/library\.js/.exec(home.text);
+  assert.ok(m, 'home.html links a versioned script');
+  const js = await fetch(`${BASE}/static/${m[1]}/library.js`);
+  assert.equal(js.status, 200); assert.match(js.headers.get('cache-control'), /immutable/);
+  const plain = await fetch(`${BASE}/static/library.js`);
+  assert.equal(plain.headers.get('cache-control'), 'no-cache');
+  assert.equal((await fetch(`${BASE}/static/v-0000000000/library.js`)).headers.get('cache-control'), 'no-cache');
+  assert.equal((await anon('/account')).status, 200);
+});
+
 test('login: wrong password refused, right one sets an HttpOnly cookie', async () => {
   assert.equal((await anon('/api/login', { method: 'POST', body: { password: 'nope' } })).status, 401);
   const r = await admin('/api/login', { method: 'POST', body: { password: ADMIN_PW } });

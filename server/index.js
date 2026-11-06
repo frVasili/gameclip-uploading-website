@@ -6,7 +6,9 @@
 //   /<12-char id>[.mp4|.jpg]                  public clip pages and files (pages.js)
 //   /healthz, /robots.txt
 import http from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { config } from './config.js';
 import * as auth from './auth.js';
 import { handleApi } from './api.js';
@@ -22,7 +24,25 @@ const BASE_HEADERS = {
 };
 // pages of the app itself: only our own scripts; media/blob for the editor
 const APP_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
-const PAGES = { '/home': 'home.html', '/admin': 'admin.html' };
+const PAGES = { '/home': 'home.html', '/admin': 'admin.html', '/account': 'admin.html' };
+
+// Versioned asset URLs. CDNs (Cloudflare's default "Browser Cache TTL" is 4 h) and browsers may keep scripts
+// longer than we ask, so pages link /static/v-<hash of web/>/file. A new release = new URLs = no stale scripts.
+// Relative imports inside the JS modules resolve under the same versioned folder automatically.
+const VERSION = (() => {
+  const h = crypto.createHash('sha1');
+  for (const f of fs.readdirSync(STATIC_DIR).sort()) { h.update(f); h.update(fs.readFileSync(path.join(STATIC_DIR, f))); }
+  return h.digest('hex').slice(0, 10);
+})();
+const pageCache = new Map();
+function sendPage(req, res, file) {
+  let html = pageCache.get(file);
+  if (!html) {
+    html = Buffer.from(fs.readFileSync(path.join(STATIC_DIR, file), 'utf8').replace(/(["'])\/static\//g, `$1/static/v-${VERSION}/`));
+    pageCache.set(file, html);
+  }
+  return send(res, 200, html, 'text/html; charset=utf-8', { 'Cache-Control': 'no-cache', 'Content-Security-Policy': APP_CSP });
+}
 
 async function handle(req, res) {
   for (const [k, v] of Object.entries(BASE_HEADERS)) res.setHeader(k, v);
@@ -41,9 +61,13 @@ async function handle(req, res) {
 
   if (m === 'GET' || m === 'HEAD') {
     const page = PAGES[p] || (/^\/edit\/[A-Za-z0-9]{16}$/.test(p) ? 'editor.html' : null);
-    if (page) return sendFile(req, res, path.join(STATIC_DIR, page), { 'Cache-Control': 'no-cache', 'Content-Security-Policy': APP_CSP });
-    const sm = /^\/static\/([A-Za-z0-9._-]+)$/.exec(p);
-    if (sm && TYPES[path.extname(sm[1])]) return sendFile(req, res, path.join(STATIC_DIR, sm[1]), { 'Cache-Control': 'no-cache' });
+    if (page) return sendPage(req, res, page);
+    const sm = /^\/static\/(?:v-([a-f0-9]{10})\/)?([A-Za-z0-9._-]+)$/.exec(p);
+    if (sm && TYPES[path.extname(sm[2])]) {
+      // the current version is immutable; old or unversioned URLs must always be re-checked
+      const cache = sm[1] === VERSION ? 'public, max-age=31536000, immutable' : 'no-cache';
+      return sendFile(req, res, path.join(STATIC_DIR, sm[2]), { 'Cache-Control': cache });
+    }
   }
 
   if (p.startsWith('/api/')) {

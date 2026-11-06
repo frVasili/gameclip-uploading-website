@@ -24,7 +24,7 @@ export function renderHeader(user, siteName, { page = '', title = '' } = {}) {
   document.title = title ? `${title} · ${siteName}` : siteName;
   const h = document.querySelector('header.top');
   h.innerHTML = `<a class="brand" href="/home"><img src="/static/favicon.svg" alt="">${esc(siteName)}</a>
-    <nav><a href="/home" class="${page === 'home' ? 'active' : ''}">Library</a>${user.admin ? `<a href="/admin" class="${page === 'admin' ? 'active' : ''}">Users &amp; server</a>` : ''}</nav>
+    <nav><a href="/home" class="${page === 'home' ? 'active' : ''}">Library</a><a href="${user.admin ? '/admin' : '/account'}" class="${page === 'admin' ? 'active' : ''}">${user.admin ? 'Users &amp; server' : 'Account'}</a></nav>
     ${title ? `<h1>${esc(title)}</h1>` : ''}
     <div class="right"><span class="status" id="saved"></span>
       <button class="chip" id="me" title="Change your name"><span class="avatar">${esc(initials(user.name))}</span>${esc(user.name)}</button>

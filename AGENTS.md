@@ -21,6 +21,10 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
 - `server/store.js`: files under `DATA_DIR`; ids; usage per owner.
 - `web/`: `home.html` + `library.js` (sign-in, upload, library), `editor.html` + `editor.js`, `admin.html` +
   `admin.js`, shared `common.js` and `app.css`. No framework, no build, no external requests (CSP enforces it).
+  Pages are served with `/static/v-<hash>/` asset URLs (index.js `VERSION`, a hash of web/) cached as immutable,
+  because CDNs (Cloudflare's default Browser Cache TTL is 4 h) override "no-cache" on scripts. Keep links to
+  assets in HTML as `/static/<file>`: the server rewrites them; JS modules import each other relatively.
+  `/admin` and `/account` are the same page: the full admin view, or a friend's own account row.
 - `docs/API.md` (API contract, keep it in sync), `docs/discord-embeds.md` (measured embed limits).
 - `test/`: `npm test` (unit tests + an end-to-end test that starts the server; needs ffmpeg).
 - `Dockerfile`, `compose.yml`, `examples/`, `.github/workflows/docker.yml` (tests, then multi-arch image to GHCR).
