@@ -45,7 +45,7 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 ```
 **Job**: `{ id: "10 chars", kind: "prepare"|"preview"|"render", state: "queued"|"running"|"done"|"error", progress: 0..1, error?, clipId?, sourceId, position }`
 
-**Clip**: `{ id: "12 chars", owner, ownerName, title, created, width, height, fps, duration, size, hasThumb, sourceId, preset, gpu, url, mp4 }`
+**Clip**: `{ id: "12 chars", owner, ownerName, title, created, width, height, fps, duration, size, hasThumb, sourceId, sourceGone, preset, gpu, url, mp4 }` (sourceGone: the recording was deleted; the clip stays)
 
 ## Uploads (in pieces)
 | method | path | |

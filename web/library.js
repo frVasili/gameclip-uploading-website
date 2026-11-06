@@ -179,7 +179,7 @@ function clipCard(c) {
       ${me.admin && c.owner !== me.id ? ownerTag(c.ownerName) : ''}
       <div class="actions">
         <button class="primary small" data-copy="${esc(c.url)}">Copy link</button>
-        ${c.sourceId ? `<a href="/edit/${c.sourceId}"><button class="small" title="Open the recording this came from">Edit</button></a>` : ''}
+        ${!c.sourceGone ? `<a href="/edit/${c.sourceId}"><button class="small" title="Open the recording this came from">Edit</button></a>` : ''}
         <button class="small danger" data-delclip="${c.id}" title="Delete the link">✕</button>
       </div>
     </div></div>`;

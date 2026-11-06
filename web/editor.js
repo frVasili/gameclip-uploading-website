@@ -426,7 +426,7 @@ const updatePlan = debounce(async () => {
     if (seq !== planSeq) return;
     const cap = p.cap ? ` (limit ${fmtBytes(p.cap)})` : '';
     const audio = !info.audio.length ? 'no audio' : !p.audioKbps ? '<span class="bad">all audio muted</span>'
-      : `audio ${p.activeTracks.length > 1 ? 'mixed to one track' : 'kept'}${edit.normalize ? ', normalized' : ''}${p.activeTracks.some((t) => t.level !== 'off') ? ', evened out' : ''}`;
+      : `audio ${p.activeTracks.length > 1 ? 'mixed to one track' : 'kept'}${edit.normalize ? ', standard volume' : ''}${p.activeTracks.some((t) => t.level !== 'off') ? ', evened out' : ''}`;
     el.innerHTML = `<b>${p.w}×${p.h} · ${p.fps} fps · ${fmtDuration(p.dur)}</b><br>about ${fmtBytes(p.estBytes)}${cap} · ${audio}
       ${p.mode.kind === '2pass' ? '<br><span class="muted small">Compressed harder to fit the size limit.</span>' : ''}
       ${!p.cap ? '<br><span class="bad small">No size limit: over 250 MB will not embed in Discord.</span>' : ''}`;
