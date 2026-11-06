@@ -2,6 +2,10 @@
 
 # gameclip uploading website
 
+> 🤖 **AI-coded.** Almost all of this project (server, editor, tests, Docker setup and docs) was written by
+> [Claude](https://claude.com/claude-code) (Anthropic's AI), directed and tested by [@frVasili](https://github.com/frVasili).
+> See [Credits](#credits).
+
 A small self-hosted site for game clips. Upload a recording, trim it, fix the audio, and get a link that
 plays right inside Discord. Friends get their own password and their own library.
 
@@ -83,6 +87,16 @@ npm test        # unit tests + an end-to-end test (the end-to-end test needs ffm
 ```
 
 See [AGENTS.md](AGENTS.md) for how it's put together and [docs/API.md](docs/API.md) for the API.
+
+## Credits
+
+- **[@frVasili](https://github.com/frVasili)**: idea, requirements, testing (including the Discord embed-limit tests), and runs it.
+- **[Claude](https://github.com/claude)** (Anthropic, via [Claude Code](https://claude.com/claude-code)): wrote the code, tests and
+  documentation, and ran the measurements behind the defaults (Discord embed sizes, audio leveling).
+  Commits it wrote carry a `Co-Authored-By: Claude` trailer.
+
+This is AI-written code: it has tests and was checked by hand, but read it before you trust it with anything important,
+as you would any small hobby project.
 
 ## License
 

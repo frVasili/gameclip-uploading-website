@@ -51,6 +51,8 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
   (ffmpeg on PATH). Front-end files are read from disk on each request; restart for server changes.
 - Run `npm test` before committing. Use `node --check` for quick syntax checks.
 - Before heavy work (big encodes, many test exports), check that the machine isn't busy.
-- Commits: never put a personal email address in commits; use the GitHub noreply address.
+- Commits: never put a personal email address in commits; use the GitHub noreply address. Commits written
+  by an AI agent end with a `Co-Authored-By:` trailer naming the model (the project is openly AI-coded; see
+  README "Credits" and AUTHORS.md).
 - Before making anything public, grep the tree *and history* for personal data (names, hostnames, domains,
   IPs, paths, tokens, emails). History can't be cleaned after a push: use a fresh repo instead.
