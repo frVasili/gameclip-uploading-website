@@ -26,6 +26,7 @@ const PAGES = { '/home': 'home.html', '/admin': 'admin.html' };
 
 async function handle(req, res) {
   for (const [k, v] of Object.entries(BASE_HEADERS)) res.setHeader(k, v);
+  if (req.url === '/healthz') return send(res, 200, 'ok', 'text/plain', { 'Cache-Control': 'no-store' }); // container health check (any Host)
   const host = String(req.headers.host || '').toLowerCase();
   if (config.allowedHosts.length && !config.allowedHosts.includes(host)) return send(res, 421, 'unknown host');
   let url;
@@ -34,7 +35,6 @@ async function handle(req, res) {
   try { p = decodeURIComponent(url.pathname); } catch { return send(res, 400, 'bad request'); }
   const m = req.method;
 
-  if (p === '/healthz') return send(res, 200, 'ok', 'text/plain', { 'Cache-Control': 'no-store' });
   if (p === '/robots.txt') return send(res, 200, 'User-agent: *\nDisallow: /\n');
   if (handleClipPage(req, res, p)) return;
   if (p === '/' && (m === 'GET' || m === 'HEAD')) { res.writeHead(302, { Location: '/home' }); return res.end(); }
