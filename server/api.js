@@ -55,17 +55,44 @@ function prepareJob(s) {
     run: async (progress) => {
       const meta = store.getSource(s.id); if (!meta) return;
       meta.status = 'preparing'; store.saveSource(meta);
-      await prepare(path.join(store.sourceDir(s.id), meta.file), store.sourceDir(s.id), meta.info, progress);
+      const r = await prepare(path.join(store.sourceDir(s.id), meta.file), store.sourceDir(s.id), meta.info, progress);
       const m = store.getSource(s.id); if (!m) return;
+      markTracks(m, r.audio);
       m.status = 'ready'; store.saveSource(m);
     },
     onError: (e) => { const m = store.getSource(s.id); if (m) { m.status = 'error'; m.error = userError(e.message); store.saveSource(m); } },
   });
 }
 
+// Per-track facts from prepare(): silent, or the same sound as an earlier track (shown in the editor)
+function markTracks(meta, facts) {
+  for (const f of facts) {
+    const a = meta.info.audio[f.n]; if (!a) continue;
+    a.silent = f.silent; if (f.sameAs !== null) a.sameAs = f.sameAs; else delete a.sameAs;
+  }
+  meta.tracksChecked = true;
+}
+// Recordings prepared before tracks were checked: compare their waveforms instead (identical waveforms over
+// a whole recording means the same sound in practice).
+function checkOldTracks(s) {
+  if (s.status !== 'ready' || s.tracksChecked) return;
+  try {
+    const seen = new Map();
+    markTracks(s, s.info.audio.map((a) => {
+      const peaks = JSON.parse(fs.readFileSync(path.join(store.sourceDir(s.id), `peaks-${a.n}.json`), 'utf8')).peaks;
+      const silent = Math.max(0, ...peaks) <= 3, key = peaks.join(',');
+      const sameAs = !silent && seen.has(key) ? seen.get(key) : null;
+      if (!seen.has(key)) seen.set(key, a.n);
+      return { n: a.n, silent, sameAs };
+    }));
+    store.saveSource(s);
+  } catch (e) { console.error(`checking tracks of ${s.id}:`, e.message); }
+}
+
 // After a restart: redo interrupted preparing, mark interrupted exports as failed.
 for (const s of store.listSources()) {
   if (s.status === 'preparing' || s.status === 'queued') prepareJob(s);
+  checkOldTracks(s);
   let changed = false;
   for (const x of s.exports || []) if (x.state === 'queued' || x.state === 'running') { x.state = 'error'; x.error = 'interrupted by a restart'; changed = true; }
   if (changed) store.saveSource(s);
@@ -184,6 +211,23 @@ export async function handleApi(req, res, url, user) {
   if (p === '/api/me' && m === 'PATCH') {
     try { const b = await body(req); auth.rename(user.id, b.name); return json(res, 200, { user: auth.getUser(user.id) }); }
     catch (e) { return sendErr(res, e); }
+  }
+
+  if (p === '/api/me/password' && m === 'POST') {
+    try { const b = await body(req); await auth.changePassword(req, user, b.current, b.password); return json(res, 200, { ok: true }); }
+    catch (e) { return sendErr(res, e); }
+  }
+
+  // ---- invite links (admin only) ----
+  if (p === '/api/invites' || p.startsWith('/api/invites/')) {
+    if (!user.admin) return json(res, 403, { error: 'admin only' });
+    if (p === '/api/invites' && m === 'GET') return json(res, 200, { invites: auth.listInvites(), defaultQuotaGB: config.defaultQuotaBytes / 1e9 });
+    if (p === '/api/invites' && m === 'POST') {
+      try { const r2 = auth.createInvite(await body(req)); return json(res, 201, { invite: r2.invite, url: `${publicBase(req)}/invite#${r2.token}` }); }
+      catch (e) { return sendErr(res, e); }
+    }
+    const im = /^\/api\/invites\/([A-Za-z0-9]{10})$/.exec(p);
+    if (im && m === 'DELETE') return auth.revokeInvite(im[1]) ? json(res, 200, { ok: true }) : json(res, 404, { error: 'no such invite' });
   }
 
   // ---- uploads (chunked) ----

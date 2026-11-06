@@ -1,5 +1,5 @@
 // Logins. There is one admin (password from ADMIN_PASSWORD / ADMIN_PASSWORD_FILE) and any number of users
-// the admin creates. Every user signs in with just a password, so passwords must be unique.
+// the admin creates (directly, or through a one-time invite link). Everyone signs in with name + password.
 //   - passwords: scrypt with a per-user salt; plaintext is shown once when created/reset, never stored
 //   - sessions: random 256-bit token in an HttpOnly cookie; only its SHA-256 is stored
 //   - failed logins are rate limited per client IP and globally
@@ -11,8 +11,10 @@ import { DATA_DIR, writeJson, readJson, randomId } from './store.js';
 
 const FILE = path.join(DATA_DIR, 'auth.json');
 const COOKIE = 'clips_session';
-let db = readJson(FILE) || { users: [], sessions: {} };
-const save = () => writeJson(FILE, db, 0o600);
+const loadDb = () => { const d = readJson(FILE) || {}; return { ...d, users: d.users || [], sessions: d.sessions || {}, invites: d.invites || [] }; };
+let db = loadDb();
+const pruneInvites = () => { const now = Date.now(); db.invites = db.invites.filter((i) => i.expires > now); };
+const save = () => { pruneInvites(); writeJson(FILE, db, 0o600); };
 
 // ---- admin password: from the environment, or generated once on first start ----
 let adminPassword = config.adminPassword;
@@ -112,32 +114,63 @@ export function currentUser(req) {
   return userById(s.uid);
 }
 
-// Returns { ok, user } or { ok:false, status, error }
-export async function login(req, res, password) {
+// A hash nobody's password matches, so unknown names cost the same time as wrong passwords.
+const DUMMY_HASH = `scrypt$${crypto.randomBytes(16).toString('base64')}$${crypto.randomBytes(32).toString('base64')}`;
+const normName = (n) => String(n ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40).toLowerCase();
+
+function startSession(req, res, uid) {
+  const token = crypto.randomBytes(32).toString('base64url');
+  pruneSessions();
+  db.sessions[tokenHash(token)] = { uid, created: Date.now(), expires: Date.now() + config.sessionDays * 86400e3 };
+  save();
+  setCookie(req, res, token, config.sessionDays * 86400);
+}
+
+// Returns { ok, user } or { ok:false, status, error }. Only the named account's password is checked.
+export async function login(req, res, name, password) {
   const ip = clientIp(req);
-  if (limited(ip)) return { ok: false, status: 429, error: 'Too many wrong passwords. Try again in 15 minutes.' };
+  if (limited(ip)) return { ok: false, status: 429, error: 'Too many wrong tries. Try again in 15 minutes.' };
   password = String(password || '');
-  let user = null;
-  if (password && password.length <= 200) {
-    const d = crypto.createHash('sha256').update(password).digest();
-    if (crypto.timingSafeEqual(d, adminDigest)) user = adminUser();
-    else {
-      for (const u of db.users) {
-        if (!u.disabled && await verifyPassword(password, u.hash)) { user = userById(u.id); break; }
-      }
+  const n = normName(name);
+  let user = null, good = false;
+  if (n && password && password.length <= 200) {
+    const isAdmin = n === adminName().toLowerCase();
+    const u = isAdmin ? null : db.users.find((x) => x.name.toLowerCase() === n && !x.disabled);
+    if (isAdmin) {
+      await verifyPassword(password, DUMMY_HASH);   // same cost as a user check
+      good = crypto.timingSafeEqual(crypto.createHash('sha256').update(password).digest(), adminDigest);
+      if (good) user = adminUser();
+    } else {
+      good = await verifyPassword(password, u ? u.hash : DUMMY_HASH);
+      if (good && u) user = userById(u.id);
     }
   }
   if (!user) {
     recordFail(ip);
     await new Promise((r) => setTimeout(r, 400 + Math.random() * 300));
-    return { ok: false, status: 401, error: 'Wrong password.' };
+    return { ok: false, status: 401, error: 'Wrong name or password.' };
   }
-  const token = crypto.randomBytes(32).toString('base64url');
-  pruneSessions();
-  db.sessions[tokenHash(token)] = { uid: user.id, created: Date.now(), expires: Date.now() + config.sessionDays * 86400e3 };
-  save();
-  setCookie(req, res, token, config.sessionDays * 86400);
+  startSession(req, res, user.id);
   return { ok: true, user };
+}
+
+// A signed-in friend changes their own password. Other sessions of theirs end; this one stays.
+export async function changePassword(req, user, current, password) {
+  if (user.admin) throw Object.assign(new Error('The admin password is set on the server (ADMIN_PASSWORD).'), { status: 400 });
+  const ip = clientIp(req);
+  if (limited(ip)) throw Object.assign(new Error('Too many wrong tries. Try again in 15 minutes.'), { status: 429 });
+  const u = db.users.find((x) => x.id === user.id);
+  if (!u) throw new Error('No such user.');
+  if (!(await verifyPassword(String(current || '').slice(0, 200), u.hash))) {
+    recordFail(ip);
+    throw Object.assign(new Error('Your current password is wrong.'), { status: 400 });
+  }
+  password = String(password ?? '');
+  checkNewPassword(password);
+  u.hash = await hashPassword(password);
+  const keep = tokenHash(cookieToken(req) || '');
+  for (const [k, s] of Object.entries(db.sessions)) if (s.uid === u.id && k !== keep) delete db.sessions[k];
+  save();
 }
 
 export function logout(req, res) {
@@ -171,12 +204,8 @@ export function rename(id, name) {
   return n;
 }
 
-async function passwordInUse(pw, exceptId) {
-  if (crypto.timingSafeEqual(crypto.createHash('sha256').update(pw).digest(), adminDigest)) return true;
-  for (const u of db.users) if (u.id !== exceptId && await verifyPassword(pw, u.hash)) return true;
-  return false;
-}
 function checkNewPassword(pw) {
+  pw = String(pw ?? '');
   if (pw.length < 8) throw new Error('Passwords need at least 8 characters.');
   if (pw.length > 200) throw new Error('That password is too long.');
 }
@@ -185,7 +214,6 @@ export async function createUser({ name, password, quotaGB }) {
   name = cleanName(name, null);
   const pw = password ? String(password) : generatePassword();
   checkNewPassword(pw);
-  if (await passwordInUse(pw)) throw new Error('That password is already used by someone else. Everyone signs in with just a password, so they have to be different.');
   const u = { id: randomId(10), name, hash: await hashPassword(pw), created: Date.now(),
     quota: quotaGB === undefined || quotaGB === '' ? config.defaultQuotaBytes : Math.max(0, Number(quotaGB)) * 1e9 };
   db.users.push(u); save();
@@ -202,7 +230,6 @@ export async function updateUser(id, { name, quotaGB, disabled, resetPassword, p
   if (resetPassword || password) {
     newPassword = password ? String(password) : generatePassword();
     checkNewPassword(newPassword);
-    if (await passwordInUse(newPassword, id)) throw new Error('That password is already used by someone else.');
     u.hash = await hashPassword(newPassword);
   }
   if (u.disabled || newPassword) for (const [k, s] of Object.entries(db.sessions)) if (s.uid === id) delete db.sessions[k];
@@ -218,5 +245,55 @@ export function deleteUser(id) {
   return db.users.length < before;
 }
 
+// ---- one-time invite links: the admin makes one, the invitee picks their own name and password ----
+// Only the SHA-256 of the token is stored; the token itself lives in the link's #fragment.
+const INVITE_DAYS = 7;
+const inviteView = (i) => ({ id: i.id, created: i.created, expires: i.expires, quota: i.quota, note: i.note });
+export const listInvites = () => { pruneInvites(); return db.invites.map(inviteView); };
+export function createInvite({ quotaGB, note } = {}) {
+  const token = crypto.randomBytes(32).toString('base64url');
+  const i = { id: randomId(10), hash: tokenHash(token), created: Date.now(), expires: Date.now() + INVITE_DAYS * 86400e3,
+    quota: quotaGB === undefined || quotaGB === '' || quotaGB === null ? config.defaultQuotaBytes : Math.max(0, Number(quotaGB) || 0) * 1e9,
+    note: String(note ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 100), createdBy: 'admin' };
+  db.invites.push(i); save();
+  return { invite: inviteView(i), token };
+}
+export function revokeInvite(id) {
+  const n = db.invites.length;
+  db.invites = db.invites.filter((i) => i.id !== id);
+  if (db.invites.length < n) save();
+  return db.invites.length < n;
+}
+const BAD_INVITE = 'This invite link is invalid, already used, or expired.';
+function findInvite(token) {
+  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
+  const h = tokenHash(token);
+  return db.invites.find((i) => i.hash === h && i.expires > Date.now()) || null;
+}
+const bad = (status, error) => Object.assign(new Error(error), { status });
+export function checkInvite(req, token) {
+  const ip = clientIp(req);
+  if (limited(ip)) throw bad(429, 'Too many wrong tries. Try again in 15 minutes.');
+  if (!findInvite(token)) { recordFail(ip); throw bad(404, BAD_INVITE); }
+  return { ok: true, siteName: config.siteName };
+}
+export async function acceptInvite(req, res, { token, name, password }) {
+  const ip = clientIp(req);
+  if (limited(ip)) throw bad(429, 'Too many wrong tries. Try again in 15 minutes.');
+  const inv = findInvite(token);
+  if (!inv) { recordFail(ip); throw bad(404, BAD_INVITE); }
+  const n = cleanName(name, null);                 // validate first so a typo doesn't burn the invite
+  password = String(password ?? '');
+  checkNewPassword(password);
+  db.invites = db.invites.filter((i) => i !== inv);  // consume synchronously: a second accept finds nothing
+  try {
+    const hash = await hashPassword(password);
+    const u = { id: randomId(10), name: cleanName(n, null), hash, created: Date.now(), quota: inv.quota };  // re-check: names may have been taken meanwhile
+    db.users.push(u);
+    startSession(req, res, u.id);
+    return { user: userById(u.id) };
+  } catch (e) { db.invites.push(inv); save(); throw e; }
+}
+
 // for tests
-export function _reload() { db = readJson(FILE) || { users: [], sessions: {} }; }
+export function _reload() { db = loadDb(); }

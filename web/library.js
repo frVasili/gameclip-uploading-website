@@ -11,6 +11,8 @@ async function start() {
   if (!res.ok || !d.user) {
     document.title = siteName; $('#loginTitle').textContent = siteName;
     $('#login').hidden = false;
+    $('#name').value = localStorage.getItem('clips-name') || '';
+    ($('#name').value ? $('#password') : $('#name')).focus();
     return;
   }
   me = d.user;
@@ -31,7 +33,8 @@ $('#loginForm').onsubmit = async (e) => {
   const err = $('#loginError'); err.hidden = true;
   const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = 'Signing in…';
   try {
-    await api('/api/login', { method: 'POST', body: { password: $('#password').value } });
+    await api('/api/login', { method: 'POST', body: { name: $('#name').value, password: $('#password').value } });
+    localStorage.setItem('clips-name', $('#name').value.trim());
     location.reload();
   } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; btn.textContent = 'Sign in'; }
 };

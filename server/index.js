@@ -2,6 +2,7 @@
 //   /                      -> /home
 //   /home, /edit/<id>, /admin and /static/*   the app (pages are public; their data needs a login)
 //   /api/login, /api/logout, /api/me          sign in / out
+//   /api/invite/check, /api/invite/accept     one-time invite links (public; the token is the credential)
 //   /api/*                 everything else: signed in only (see api.js)
 //   /<12-char id>[.mp4|.jpg]                  public clip pages and files (pages.js)
 //   /healthz, /robots.txt
@@ -24,7 +25,7 @@ const BASE_HEADERS = {
 };
 // pages of the app itself: only our own scripts; media/blob for the editor
 const APP_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
-const PAGES = { '/home': 'home.html', '/admin': 'admin.html', '/account': 'admin.html' };
+const PAGES = { '/home': 'home.html', '/admin': 'admin.html', '/account': 'admin.html', '/invite': 'invite.html' };
 
 // Versioned asset URLs. CDNs (Cloudflare's default "Browser Cache TTL" is 4 h) and browsers may keep scripts
 // longer than we ask, so pages link /static/v-<hash of web/>/file. A new release = new URLs = no stale scripts.
@@ -42,6 +43,11 @@ function sendPage(req, res, file) {
     pageCache.set(file, html);
   }
   return send(res, 200, html, 'text/html; charset=utf-8', { 'Cache-Control': 'no-cache', 'Content-Security-Policy': APP_CSP });
+}
+
+// small JSON body for the public auth endpoints; bad or oversized input counts as empty
+async function smallBody(req) {
+  try { const b = JSON.parse(await readBody(req, 4096) || '{}'); return b && typeof b === 'object' ? b : {}; } catch { return {}; }
 }
 
 async function handle(req, res) {
@@ -74,10 +80,15 @@ async function handle(req, res) {
     res.setHeader('Cache-Control', 'no-store');
     if (m !== 'GET' && m !== 'HEAD' && req.headers['x-clips'] !== '1') return json(res, 403, { error: 'missing X-Clips header' });
     if (p === '/api/login' && m === 'POST') {
-      let pw = '';
-      try { pw = JSON.parse(await readBody(req, 4096) || '{}').password; } catch { /* treated as empty */ }
-      const r = await auth.login(req, res, pw);
+      const b = await smallBody(req);
+      const r = await auth.login(req, res, b.name, b.password);
       return r.ok ? json(res, 200, { user: r.user }) : json(res, r.status, { error: r.error });
+    }
+    // invite links: public, but the token is the credential (rate limited like logins)
+    if ((p === '/api/invite/check' || p === '/api/invite/accept') && m === 'POST') {
+      const b = await smallBody(req);
+      try { return json(res, 200, p.endsWith('check') ? auth.checkInvite(req, b.token) : await auth.acceptInvite(req, res, b)); }
+      catch (e) { return json(res, e.status || 400, { error: e.message }); }
     }
     if (p === '/api/logout' && m === 'POST') { auth.logout(req, res); return json(res, 200, { ok: true }); }
     const user = auth.currentUser(req);

@@ -1,29 +1,33 @@
 # API
 
 JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
-- Every `/api/*` route except `login`, `logout` and `me` needs a session cookie (`clips_session`), else 401.
+- Every `/api/*` route except `login`, `logout`, `me` and `invite/*` needs a session cookie (`clips_session`), else 401.
 - Every non-GET request needs the header `X-Clips: 1` (CSRF guard), else 403.
 - Users see and change only their own uploads and clips; the admin sees everything. Someone else's object
   answers 404, as if it didn't exist.
 
 ## Pages (no login needed to load them; their data needs one)
-`/` → 302 `/home` · `/home` sign-in + library · `/edit/<sourceId>` editor · `/admin` users & server (admin) ·
+`/` → 302 `/home` · `/home` sign-in + library · `/invite#<token>` accept an invite · `/edit/<sourceId>` editor · `/admin` users & server (admin) ·
 `/static/<file>` · `/healthz` · `/<clipId>` public watch page · `/<clipId>.mp4` · `/<clipId>.jpg`
 
 ## Sign in
 | method | path | |
 |---|---|---|
-| POST | `/api/login` | `{ password }` → `{ user }` + cookie. 401 wrong, 429 too many tries (per IP, 15 min) |
+| POST | `/api/login` | `{ name, password }` → `{ user }` + cookie. The name is the display name (case-insensitive; the admin's too). 401 "Wrong name or password." (same answer for an unknown name), 429 too many tries (per IP, 15 min) |
 | POST | `/api/logout` | ends the session |
 | GET | `/api/me` | `{ user: { id, name, admin } \| null, siteName }` |
-| PATCH | `/api/me` | `{ name }` rename yourself (anyone signed in, the admin too) → `{ user }`. Names are 1-40 characters and unique, ignoring case |
+| PATCH | `/api/me` | `{ name }` rename yourself (anyone signed in, the admin too) → `{ user }`. Names are 1-40 characters and unique, ignoring case. The name is also the sign-in name |
+| POST | `/api/me/password` | `{ current, password }` change your own password (friends only; the admin gets 400, its password is `ADMIN_PASSWORD`). Wrong `current` → 400 and counts as a failed login; new password 8-200 characters. Your other sessions end → `{ ok }` |
+| POST | `/api/invite/check` | public, `{ token }` → `{ ok, siteName }`, or 404 if invalid, used or expired (rate limited like login) |
+| POST | `/api/invite/accept` | public, `{ token, name, password }` → creates the user (quota from the invite), consumes the invite, signs in → `{ user }` + cookie. Same errors as creating a user (name taken, password too short) |
 
 ## Objects
 **Source** (an uploaded recording):
 ```
 { id: "16 chars", owner, ownerName, name, size, created, status: "queued"|"preparing"|"ready"|"error", error?,
   info: { duration, width, height, fps, vcodec, pixFmt, container, bitrate,
-          audio: [ { n, codec, channels, layout, title, language } ] },
+          audio: [ { n, codec, channels, layout, title, language, silent?, sameAs? } ] },  // after preparing: silent track, or
+                                                   // sameAs = n of an earlier track with exactly the same sound
   edit?: Edit, jobs: [Job], exports: [ { clipId, created, state, error?, size?, title, clip: Clip|null } ] }
 ```
 **Edit** (the server clamps and validates it):
@@ -67,11 +71,18 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 | GET / PATCH / DELETE | `/api/clips/<id>` | read; `{ title }`; delete (the link stops working) |
 | GET | `/api/clips/<id>.jpg` / `.mp4` | files, for the library |
 
+## Invite links (admin only)
+| method | path | |
+|---|---|---|
+| GET | `/api/invites` | `{ invites: [ { id, created, expires, quota, note } ], defaultQuotaGB }` (pending only; tokens are never stored) |
+| POST | `/api/invites` | `{ quotaGB?, note? }` → `{ invite, url }`; `url` is `<publicBase>/invite#<token>`, shown only once. Works once, expires after 7 days |
+| DELETE | `/api/invites/<id>` | revoke |
+
 ## Users (admin only)
 | method | path | |
 |---|---|---|
 | GET | `/api/users` | `{ admin: {…usage}, users: [ { id, name, created, quota, disabled, lastLogin, used, uploads, clips } ], defaultQuotaGB }` |
-| POST | `/api/users` | `{ name, quotaGB?, password? }` → `{ user, password }` (password generated if not given; shown only here) |
+| POST | `/api/users` | `{ name, quotaGB?, password? }` → `{ user, password }` (password generated if not given; shown only here). Passwords need not be unique |
 | PATCH | `/api/users/<id>` | `{ name? (rename), quotaGB?, disabled?, resetPassword?: true, password? }` → `{ user, password? }`. Disabling or a new password signs them out |
 | DELETE | `/api/users/<id>?data=keep\|delete` | keep: their recordings/clips become the admin's; delete: removes them |
 

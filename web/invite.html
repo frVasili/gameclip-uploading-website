@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Join</title>
+<link rel="icon" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/app.css">
+<script type="module" src="/static/invite.js"></script>
+</head>
+<body>
+<main>
+  <div class="login">
+    <img class="logo" src="/static/favicon.svg" alt="">
+    <h1 id="title">Clips</h1>
+    <p id="intro">Checking your invite…</p>
+    <form class="panel" id="form" hidden>
+      <label for="name">Pick a name</label>
+      <input type="text" id="name" autocomplete="username" maxlength="40" required autofocus>
+      <label for="pw" style="margin-top:10px">Pick a password <span class="muted">(at least 8 characters)</span></label>
+      <input type="password" id="pw" autocomplete="new-password" minlength="8" maxlength="200" required>
+      <label for="pw2" style="margin-top:10px">Repeat the password</label>
+      <input type="password" id="pw2" autocomplete="new-password" minlength="8" maxlength="200" required>
+      <div class="small bad" id="error" style="margin-top:8px" hidden></div>
+      <button class="primary" type="submit">Create my account</button>
+    </form>
+    <p class="small" style="margin-top:16px"><a href="/home">Already have an account? Sign in</a></p>
+  </div>
+</main>
+</body>
+</html>

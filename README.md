@@ -7,7 +7,7 @@
 > See [Credits](#credits).
 
 A small self-hosted site for game clips. Upload a recording, trim it, fix the audio, and get a link that
-plays right inside Discord. Friends get their own password and their own library.
+plays right inside Discord. Friends get their own login and their own library.
 
 - **Trim** on a zoomable waveform timeline, pick the thumbnail frame, add fades.
 - **Audio:** every track of an OBS/ShadowPlay recording separately (game, mic, Discord...), with volume up to
@@ -18,7 +18,7 @@ plays right inside Discord. Friends get their own password and their own library
   Smaller presets are there too (100/50/10 MB).
 - **Links** like `https://clips.example.com/Xa83kd0QmP2z`: random and unguessable, so viewers can only see
   the clips they were sent.
-- **Friends:** the admin creates a password per person, with a storage limit. Everyone sees only their own uploads.
+- **Friends:** the admin creates a login per person (or sends a one-time invite link where they pick their own name and password), with a storage limit; friends can change their own password. Everyone sees only their own uploads.
   Everyone can change their own name on the **Account** tab; the admin can rename anyone on **Users & server**.
 - **Big uploads** go up in pieces and resume after a dropped connection. This also gets past Cloudflare's 100 MB request limit.
 - **Optional GPU encoding** (AMD/Intel VAAPI) for faster exports.
@@ -39,7 +39,7 @@ mkdir data && sudo chown 1000:1000 data
 docker compose up -d
 ```
 
-Then open the site, sign in with the admin password, and go to **Users & server** to create passwords for your friends.
+Then open the site, sign in with the name `Admin` and the admin password, and go to **Users & server** to create logins or invite links for your friends.
 
 **How should people reach it?**
 
@@ -56,7 +56,8 @@ The clip pages must be reachable from the internet for Discord embeds to work. E
 For AMD or Intel graphics: set `VAAPI_DEVICE=/dev/dri/renderD128` in `.env`, then uncomment `devices` and
 `group_add` in the compose file. `group_add` needs the id from `getent group render`. The admin page shows
 whether it works. Exports then get a "Fast GPU encode" checkbox (ticked by default with `GPU_DEFAULT=true`): it's much faster, but needs more MB for the same
-quality. (NVIDIA isn't supported yet.)
+quality. The GPU also converts uploads the browser can't play (e.g. HEVC from OBS) into the editor's preview, which
+is much faster than doing it on the CPU. (NVIDIA isn't supported yet.)
 
 ### Settings
 
@@ -71,7 +72,7 @@ per-friend storage, automatic deletion of old recordings, CPU threads, the size 
 ## Security notes
 
 - Passwords are stored as scrypt hashes; sessions are random tokens in HttpOnly cookies. Wrong passwords are
-  rate limited. Each person's password must be different, because people sign in with just a password.
+  rate limited. People sign in with their name and password. Invite links keep the token in the URL fragment and store only its hash.
 - Uploaded files are treated as untrusted. Only real video containers are accepted, and ffmpeg can't follow
   playlists or links inside them, because that trick can leak server files.
 - The container runs as an unprivileged user with a read-only filesystem and no capabilities.

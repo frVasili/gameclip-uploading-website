@@ -172,3 +172,8 @@ kbd { background: var(--panel2); border: 1px solid var(--line2); border-bottom-w
 .mini img, .mini .ph { width: 96px; aspect-ratio: 16/9; object-fit: cover; border-radius: 6px; background: #000; flex: none; }
 .mini .t { flex: 1; min-width: 0; } .mini .t div:first-child { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list { display: grid; gap: 8px; }
+.login label { display: block; }
+.invite-url { font-family: ui-monospace, monospace; font-size: 13px; word-break: break-all; background: #0f0f16; padding: 8px 12px; border-radius: 8px; display: block; margin: 6px 0; user-select: all; }
+.form-row.two { grid-template-columns: 1fr 2fr auto; }
+.form-row.three { grid-template-columns: 1fr 1fr 1fr auto; }
+@media (max-width: 800px) { .form-row.two, .form-row.three { grid-template-columns: 1fr; } }

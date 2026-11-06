@@ -30,7 +30,7 @@ export function renderHeader(user, siteName, { page = '', title = '' } = {}) {
       <button class="chip" id="me" title="Change your name"><span class="avatar">${esc(initials(user.name))}</span>${esc(user.name)}</button>
       <button class="small ghost" id="logout">Sign out</button></div>`;
   h.querySelector('#me').onclick = async () => {
-    const name = prompt('Your name (shown to the admin and under your clips as "by …"):', user.name);
+    const name = prompt('Your name (you sign in with it, and it shows under your clips as "by …"):', user.name);
     if (name === null || name.trim() === user.name) return;
     try { await api('/api/me', { method: 'PATCH', body: { name } }); toast('Name changed'); setTimeout(() => location.reload(), 600); }
     catch (e) { toast(e.message, true); }

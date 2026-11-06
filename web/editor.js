@@ -275,7 +275,7 @@ function renderTracks() {
     const desc = [a.channels === 1 ? 'mono' : a.channels === 2 ? 'stereo' : `${a.channels} ch`, a.language].filter(Boolean).join(' · ');
     return `<div class="track ${e.muted ? 'muted' : ''}">
       <span class="swatch" style="background:${COLORS[i % COLORS.length]}"></span>
-      <span class="tname" title="${esc(a.title)}">${esc(a.title || `Track ${i + 1}`)} <span class="muted small">${esc(desc)}</span></span>
+      <span class="tname" title="${esc(a.title)}">${info.audio.length > 1 && a.title ? `${i + 1}. ` : ''}${esc(a.title || `Track ${i + 1}`)} <span class="muted small">${esc(desc)}</span></span>
       <button class="small ${e.muted ? 'on' : ''}" data-mute="${i}">${e.muted ? 'Muted' : 'Mute'}</button>
       ${info.audio.length > 1 ? `<button class="small ${soloed(i) ? 'on' : ''}" data-solo="${i}">Solo</button>` : '<span></span>'}
       <select class="level" data-level="${i}" title="Even out volume differences inside this track" aria-label="Even out">
@@ -284,6 +284,29 @@ function renderTracks() {
       <input type="range" min="0" max="400" step="5" value="${Math.round(e.volume * 100)}" data-vol="${i}" title="Double-click to reset to 100%" aria-label="Volume">
       <span class="vol" data-volshow="${i}">${levelBusy.has(i) ? '…' : `${Math.round(e.volume * 100)}%`}</span></div>`;
   }).join('');
+  renderDupHint();
+}
+// Checked on the server when the upload was prepared: tracks in the file with exactly the same sound as an
+// earlier track (OBS can record one mix to several tracks), and silent tracks.
+function renderDupHint() {
+  const nums = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : `${xs[0]}`);
+  const tracksText = (ns) => `track${ns.length > 1 ? 's' : ''} ${nums(ns.map((n) => n + 1))}`;
+  const copies = info.audio.filter((a) => a.sameAs != null), silent = info.audio.filter((a) => a.silent);
+  const parts = [];
+  for (const orig of new Set(copies.map((a) => a.sameAs))) {
+    const same = copies.filter((a) => a.sameAs === orig).map((a) => a.n);
+    parts.push(`${tracksText(same)} ${same.length > 1 ? 'are exact copies' : 'is an exact copy'} of ${tracksText([orig])}`);
+  }
+  if (silent.length && info.audio.length > 1) parts.push(`${tracksText(silent.map((a) => a.n))} ${silent.length > 1 ? 'are' : 'is'} silent`);
+  const hint = $('#dupHint');
+  hint.hidden = !parts.length;
+  if (!parts.length) return;
+  const loudCopies = copies.filter((a) => !edit.tracks[a.n].muted);
+  const txt = `In the uploaded file itself, ${parts.join('; ')}. ` + (copies.length
+    ? 'This usually means the recorder (e.g. OBS: Settings → Output → Recording → Audio Track) saved the same audio to several tracks. Playing copies together just makes it louder.'
+    : '');
+  hint.innerHTML = `${esc(txt)} ${loudCopies.length ? '<button class="small" id="muteCopies">Mute the copies</button>' : ''}`;
+  if (loudCopies.length) $('#muteCopies').onclick = () => { for (const a of copies) edit.tracks[a.n].muted = true; renderTracks(); changed(); };
 }
 $('#tracks').addEventListener('click', (ev) => {
   const d = ev.target.dataset;

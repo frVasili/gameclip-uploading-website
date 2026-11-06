@@ -18,12 +18,14 @@
     <h1 id="loginTitle">Clips</h1>
     <p>Trim your game clips, fix the audio and get a link that plays right in Discord.</p>
     <form class="panel" id="loginForm">
-      <label for="password">Password</label>
-      <input type="password" id="password" autocomplete="current-password" required autofocus>
+      <label for="name">Name</label>
+      <input type="text" id="name" autocomplete="username" maxlength="40" required autofocus>
+      <label for="password" style="margin-top:10px;display:block">Password</label>
+      <input type="password" id="password" autocomplete="current-password" required>
       <div class="small bad" id="loginError" style="margin-top:8px" hidden></div>
       <button class="primary" type="submit">Sign in</button>
     </form>
-    <p class="small" style="margin-top:16px">No password? Ask whoever runs this site for one.</p>
+    <p class="small" style="margin-top:16px">No account? Ask whoever runs this site for an invite link.</p>
   </div>
 </main>
 

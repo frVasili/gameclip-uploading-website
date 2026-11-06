@@ -3,6 +3,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { config } from './config.js';
 
 const FFMPEG = process.env.FFMPEG || 'ffmpeg';
@@ -71,7 +72,7 @@ export async function makeLeveledPreview(src, n, level, outFile) {
   const tmp = `${outFile}.tmp.m4a`;
   await run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-v', 'error', ...SAFE, '-i', src, '-map', `0:a:${n}`, '-vn', '-sn',
     '-af', `${trackPrep}${levelFilter(level)}`, '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', tmp]);
-  await writePeaks(tmp, '0:a:0', outFile.replace(/^(.*)audio-(\d+-\w+)\.m4a$/, '$1peaks-$2.json'));
+  writePeaks(await pcmOf(tmp, '0:a:0'), outFile.replace(/^(.*)audio-(\d+-\w+)\.m4a$/, '$1peaks-$2.json'));
   fs.renameSync(tmp, outFile);
 }
 
@@ -123,33 +124,56 @@ export async function probe(file) {
 }
 
 // Editor files: a browser-playable video without audio, each audio track separately, and waveform peaks.
+// One ffmpeg run reads the upload once and writes everything (it used to be 1 + 2 per track runs, each
+// reading the whole file). Videos browsers can't play (e.g. HEVC from OBS) become a 720p H.264 preview:
+// on the GPU when there is one (decoding HEVC on the CPU alone takes about half the time), else the CPU.
+// Returns per-track facts for the editor: { audio: [{ n, silent, sameAs }] } where sameAs is the n of an
+// earlier track with exactly the same decoded sound (OBS can write the same mix to several tracks).
 export async function prepare(src, dir, info, onProgress = () => {}) {
-  const steps = 1 + info.audio.length * 2;
-  let done = 0;
-  const step = (f) => onProgress((done + f) / steps);
-
-  const preview = path.join(dir, 'preview.mp4');
   const playable = info.vcodec === 'h264' && info.pixFmt === 'yuv420p' && info.height <= 1440;
-  const vargs = playable
-    ? ['-c:v', 'copy']
-    : ['-vf', 'scale=-2:min(720\\,ih):flags=bicubic,format=yuv420p', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '30', '-threads', THREADS];
-  await run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', ...SAFE, '-i', src, '-map', '0:v:0', '-an', '-sn', '-dn',
-    ...vargs, '-movflags', '+faststart', preview], { duration: info.duration, onProgress: step });
-  done++;
+  const outH = even(Math.min(720, info.height)), outW = even(outH * info.width / info.height);
+  const video = (mode) => mode === 'copy' ? ['-map', '0:v:0', '-c:v', 'copy']
+    : mode === 'gpu' ? ['-map', '0:v:0', '-vf', `scale_vaapi=w=${outW}:h=${outH}:format=nv12`, '-c:v', 'h264_vaapi', '-rc_mode', 'CQP', '-qp', '26', '-g', '30']
+      : ['-map', '0:v:0', '-vf', `scale=${outW}:${outH}:flags=bicubic,format=yuv420p`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '30', '-threads', THREADS];
+  const pcm = (n) => path.join(dir, `pcm-${n}.tmp`);
+  const once = (mode) => {
+    const hw = mode === 'gpu' ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-hwaccel', 'vaapi', '-hwaccel_device', 'va', '-hwaccel_output_format', 'vaapi'] : [];
+    const outs = [...video(mode), '-an', '-sn', '-dn', '-movflags', '+faststart', path.join(dir, 'preview.mp4')];
+    for (const a of info.audio) {
+      outs.push('-map', `0:a:${a.n}`, '-vn', '-sn', '-dn', '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-movflags', '+faststart', path.join(dir, `audio-${a.n}.m4a`));
+      outs.push('-map', `0:a:${a.n}`, '-vn', '-sn', '-dn', '-ac', '1', '-ar', '8000', '-f', 's16le', pcm(a.n));   // for the waveform
+    }
+    return run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', ...hw, ...SAFE, '-i', src, ...outs],
+      { duration: info.duration, onProgress: (f) => onProgress(f * 0.97) });
+  };
+  try {
+    if (playable) await once('copy');
+    else if (gpu.available) {
+      try { await once('gpu'); } catch (e) {   // e.g. a codec this GPU can't decode: do it all again on the CPU
+        console.error('GPU preview failed, using the CPU:', e.message);
+        await once('cpu');
+      }
+    } else await once('cpu');
 
-  for (const a of info.audio) {
-    await run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', ...SAFE, '-i', src, '-map', `0:a:${a.n}`, '-vn', '-sn',
-      '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-movflags', '+faststart', path.join(dir, `audio-${a.n}.m4a`)],
-    { duration: info.duration, onProgress: step });
-    done++;
-    await writePeaks(src, `0:a:${a.n}`, path.join(dir, `peaks-${a.n}.json`));
-    done++; step(0);
+    const seen = new Map();   // hash of the decoded sound -> first track with it
+    const audio = info.audio.map((a) => {
+      const buf = fs.readFileSync(pcm(a.n));
+      const peaks = writePeaks(buf, path.join(dir, `peaks-${a.n}.json`));
+      const silent = Math.max(0, ...peaks) <= 3;   // nothing above about -70 dBFS
+      const hash = crypto.createHash('sha256').update(buf).digest('hex');
+      const sameAs = !silent && buf.length && seen.has(hash) ? seen.get(hash) : null;
+      if (!seen.has(hash)) seen.set(hash, a.n);
+      return { n: a.n, silent, sameAs };
+    });
+    onProgress(1);
+    return { audio };
+  } finally {
+    for (const a of info.audio) fs.rmSync(pcm(a.n), { force: true });
   }
 }
 
-// Waveform for the editor: 100 peaks per second, 0-255, from 8 kHz mono
-async function writePeaks(src, map, outFile) {
-  const pcm = await run(FFMPEG, ['-hide_banner', '-nostdin', '-v', 'error', ...SAFE, '-i', src, '-map', map, '-ac', '1', '-ar', '8000', '-f', 's16le', '-'], { capture: true });
+// Waveform for the editor: 100 peaks per second, 0-255, from 8 kHz mono 16-bit PCM. Returns the peaks.
+function writePeaks(pcm, outFile) {
   const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
   const per = 80, peaks = new Array(Math.ceil(samples.length / per));
   for (let i = 0; i < peaks.length; i++) {
@@ -158,7 +182,9 @@ async function writePeaks(src, map, outFile) {
     peaks[i] = Math.round(Math.sqrt(max / 32768) * 255); // sqrt so quiet audio is still visible
   }
   fs.writeFileSync(outFile, JSON.stringify({ rate: 100, peaks }));
+  return peaks;
 }
+const pcmOf = (src, map) => run(FFMPEG, ['-hide_banner', '-nostdin', '-v', 'error', ...SAFE, '-i', src, '-map', map, '-ac', '1', '-ar', '8000', '-f', 's16le', '-'], { capture: true });
 
 const even = (x) => Math.max(2, Math.round(x / 2) * 2);
 

@@ -16,7 +16,7 @@ let server;
 
 before(async () => {
   server = spawn(process.execPath, ['server/index.js'], {
-    env: { ...process.env, DATA_DIR: dir, PORT: String(PORT), HOST: '127.0.0.1', ADMIN_PASSWORD: ADMIN_PW, UPLOAD_CHUNK_MB: '1', ENCODE_THREADS: '2', ACCESS_LOG: 'false' },
+    env: { ...process.env, DATA_DIR: dir, PORT: String(PORT), HOST: '127.0.0.1', ADMIN_PASSWORD: ADMIN_PW, UPLOAD_CHUNK_MB: '1', ENCODE_THREADS: '2', ACCESS_LOG: 'false', TRUST_PROXY: 'cloudflare' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   server.stderr.on('data', (d) => process.stderr.write(d));
@@ -29,10 +29,12 @@ before(async () => {
 after(() => { server?.kill(); fs.rmSync(dir, { recursive: true, force: true }); });
 
 // tiny client with a cookie jar
-function client() {
+let ipCounter = 0;
+function client() {   // each client has its own fake IP (TRUST_PROXY=cloudflare) so failed-login rate limits don't leak between tests
   let cookie = '';
+  const ip = `10.0.0.${++ipCounter}`;
   return async (p, { method = 'GET', body, raw, headers = {}, csrf = true } = {}) => {
-    const h = { ...headers };
+    const h = { 'CF-Connecting-IP': ip, ...headers };
     if (cookie) h.Cookie = cookie;
     if (method !== 'GET' && csrf) h['X-Clips'] = '1';
     if (body !== undefined) h['Content-Type'] = 'application/json';
@@ -69,8 +71,10 @@ test('pages link versioned assets that are cached forever; old/unversioned URLs 
 });
 
 test('login: wrong password refused, right one sets an HttpOnly cookie', async () => {
-  assert.equal((await anon('/api/login', { method: 'POST', body: { password: 'nope' } })).status, 401);
-  const r = await admin('/api/login', { method: 'POST', body: { password: ADMIN_PW } });
+  assert.equal((await anon('/api/login', { method: 'POST', body: { name: 'Admin', password: 'nope' } })).status, 401);
+  assert.equal((await anon('/api/login', { method: 'POST', body: { name: 'nobody', password: ADMIN_PW } })).status, 401, 'wrong name');
+  assert.equal((await anon('/api/login', { method: 'POST', body: { password: ADMIN_PW } })).status, 401, 'name is required');
+  const r = await admin('/api/login', { method: 'POST', body: { name: 'admin', password: ADMIN_PW } });
   assert.equal(r.status, 200); assert.equal(r.json.user.admin, true);
   assert.match(r.headers.get('set-cookie'), /HttpOnly/); assert.match(r.headers.get('set-cookie'), /SameSite=Lax/);
 });
@@ -79,13 +83,12 @@ test('state changes need the X-Clips header (CSRF)', async () => {
   assert.equal((await admin('/api/users', { method: 'POST', body: { name: 'x' }, csrf: false })).status, 403);
 });
 
-test('admin creates a friend; passwords must be unique; friend can sign in', async () => {
+test('admin creates a friend; friend can sign in', async () => {
   const r = await admin('/api/users', { method: 'POST', body: { name: 'Alex', quotaGB: 1 } });
   assert.equal(r.status, 201); alexPassword = r.json.password;
   assert.ok(alexPassword.length >= 16);
-  assert.equal((await admin('/api/users', { method: 'POST', body: { name: 'Sam', password: ADMIN_PW } })).status, 400);
   assert.equal((await admin('/api/users', { method: 'POST', body: { name: 'alex' } })).status, 400, 'duplicate name');
-  const l = await alex('/api/login', { method: 'POST', body: { password: alexPassword } });
+  const l = await alex('/api/login', { method: 'POST', body: { name: 'ALEX', password: alexPassword } });
   assert.equal(l.json.user.name, 'Alex'); assert.equal(l.json.user.admin, false);
   assert.equal((await alex('/api/users')).status, 403, 'friends cannot manage users');
   const auth = fs.readFileSync(path.join(dir, 'auth.json'), 'utf8');
@@ -136,7 +139,7 @@ test('upload in pieces, prepare, export, public page; others cannot see it', { s
   assert.equal((await anon(`/api/sources/${sid}`)).status, 401);
   const sam = client();
   const created = await admin('/api/users', { method: 'POST', body: { name: 'Sam' } });
-  await sam('/api/login', { method: 'POST', body: { password: created.json.password } });
+  await sam('/api/login', { method: 'POST', body: { name: 'Sam', password: created.json.password } });
   assert.equal((await sam(`/api/sources/${sid}`)).status, 404);
   assert.equal((await sam('/api/sources')).json.length, 0);
 
@@ -179,11 +182,77 @@ test('disabling a user signs them out', async () => {
   const a = users.find((u) => u.name === 'Alex');
   await admin(`/api/users/${a.id}`, { method: 'PATCH', body: { disabled: true } });
   assert.equal((await alex('/api/sources')).status, 401);
-  assert.equal((await client()('/api/login', { method: 'POST', body: { password: alexPassword } })).status, 401);
+  assert.equal((await client()('/api/login', { method: 'POST', body: { name: 'Alex', password: alexPassword } })).status, 401);
 });
 
 test('unknown clip ids and paths give the same 404', async () => {
   assert.equal((await anon('/AAAAAAAAAAAA')).status, 404);
   assert.equal((await anon('/AAAAAAAAAAAA.mp4')).status, 404);
   assert.equal((await anon('/whatever')).status, 404);
+});
+
+test('login checks only the named account: passwords may be shared, other names do not work', async () => {
+  const pw = 'shared-password-1';
+  await admin('/api/users', { method: 'POST', body: { name: 'Twin1', password: pw } });
+  assert.equal((await admin('/api/users', { method: 'POST', body: { name: 'Twin2', password: ADMIN_PW } })).status, 201, 'even the admin password');
+  const t2 = await admin('/api/users', { method: 'POST', body: { name: 'Twin3', password: pw } });
+  assert.equal(t2.status, 201);
+  assert.equal((await client()('/api/login', { method: 'POST', body: { name: 'twin3', password: pw } })).json.user.name, 'Twin3');
+  assert.equal((await client()('/api/login', { method: 'POST', body: { name: 'Twin1', password: 'x'.repeat(10) } })).status, 401);
+});
+
+test('change own password: wrong current refused, new works, old fails, other sessions end; admin cannot', async () => {
+  const c1 = client(), c2 = client(), pw = 'twin-pass-one', npw = 'brand-new-pass';
+  await c1('/api/login', { method: 'POST', body: { name: 'Twin1', password: 'shared-password-1' } });
+  await c2('/api/login', { method: 'POST', body: { name: 'Twin1', password: 'shared-password-1' } });
+  assert.equal((await c1('/api/me/password', { method: 'POST', body: { current: 'wrong', password: npw } })).status, 400);
+  assert.equal((await c1('/api/me/password', { method: 'POST', body: { current: 'shared-password-1', password: 'short' } })).status, 400);
+  assert.equal((await c1('/api/me/password', { method: 'POST', body: { current: 'shared-password-1', password: npw }, csrf: false })).status, 403);
+  assert.equal((await c1('/api/me/password', { method: 'POST', body: { current: 'shared-password-1', password: npw } })).status, 200);
+  assert.equal((await c1('/api/sources')).status, 200, 'this session stays');
+  assert.equal((await c2('/api/sources')).status, 401, 'other sessions end');
+  assert.equal((await client()('/api/login', { method: 'POST', body: { name: 'Twin1', password: 'shared-password-1' } })).status, 401);
+  assert.equal((await client()('/api/login', { method: 'POST', body: { name: 'Twin1', password: npw } })).status, 200);
+  assert.equal((await anon('/api/me/password', { method: 'POST', body: { current: pw, password: npw } })).status, 401);
+  const a = await admin('/api/me/password', { method: 'POST', body: { current: ADMIN_PW, password: 'whatever-123' } });
+  assert.equal(a.status, 400); assert.match(a.json.error, /ADMIN_PASSWORD/);
+});
+
+test('invite links: create, check, accept once, signed in; only the admin creates them', async () => {
+  assert.equal((await alex('/api/invites', { method: 'POST', body: {} })).status, 401, 'disabled friend, no session');
+  const twin = client(); await twin('/api/login', { method: 'POST', body: { name: 'Twin3', password: 'shared-password-1' } });
+  assert.equal((await twin('/api/invites', { method: 'POST', body: {} })).status, 403);
+  assert.equal((await twin('/api/invites')).status, 403);
+  const r = await admin('/api/invites', { method: 'POST', body: { quotaGB: 3, note: 'for Pat' } });
+  assert.equal(r.status, 201, r.text);
+  const m = /^http:\/\/127\.0\.0\.1:\d+\/invite#([A-Za-z0-9_-]{43})$/.exec(r.json.url);
+  assert.ok(m, r.json.url); const token = m[1];
+  assert.ok(!fs.readFileSync(path.join(dir, 'auth.json'), 'utf8').includes(token), 'token itself never stored');
+  const list = (await admin('/api/invites')).json.invites;
+  assert.equal(list.length, 1); assert.equal(list[0].note, 'for Pat'); assert.equal(list[0].quota, 3e9); assert.ok(!JSON.stringify(list).includes(token));
+  assert.equal((await anon('/invite')).status, 200);
+  assert.equal((await anon('/api/invite/check', { method: 'POST', body: { token } })).json.ok, true);
+  assert.equal((await anon('/api/invite/check', { method: 'POST', body: { token }, csrf: false })).status, 403);
+  assert.equal((await anon('/api/invite/check', { method: 'POST', body: { token: 'A'.repeat(43) } })).status, 404);
+  assert.equal((await anon('/api/invite/check', { method: 'POST', body: { token: 'short' } })).status, 404);
+  // a bad name or password does not burn the invite
+  const pat = client();
+  assert.equal((await pat('/api/invite/accept', { method: 'POST', body: { token, name: 'alex', password: 'long-enough-pw' } })).status, 400, 'name taken');
+  assert.equal((await pat('/api/invite/accept', { method: 'POST', body: { token, name: 'Pat', password: 'short' } })).status, 400);
+  // two accepts at once: exactly one wins
+  const rival = client();
+  const [x, y] = await Promise.all([
+    pat('/api/invite/accept', { method: 'POST', body: { token, name: 'Pat', password: 'pats-password' } }),
+    rival('/api/invite/accept', { method: 'POST', body: { token, name: 'Pat2', password: 'pats-password' } })]);
+  assert.deepEqual([x.status, y.status].sort(), [200, 404]);
+  const winner = x.status === 200 ? pat : rival;
+  const me = (await winner('/api/me')).json.user;
+  assert.match(me.name, /^Pat2?$/); assert.equal(me.admin, false);
+  assert.equal((await winner('/api/status')).json.user.quota, 3e9);
+  assert.equal((await anon('/api/invite/check', { method: 'POST', body: { token } })).status, 404, 'used up');
+  assert.equal((await admin('/api/invites')).json.invites.length, 0);
+  // revoke
+  const r2 = await admin('/api/invites', { method: 'POST', body: {} });
+  assert.equal((await admin(`/api/invites/${r2.json.invite.id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await anon('/api/invite/check', { method: 'POST', body: { token: r2.json.url.split('#')[1] } })).status, 404);
 });
