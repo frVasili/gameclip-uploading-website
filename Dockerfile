@@ -1,5 +1,7 @@
 # Game clip site: Node (no npm dependencies) + ffmpeg. Runs as the unprivileged "node" user (uid 1000).
-FROM node:24-alpine
+# Alpine 3.22 on purpose: its Mesa (25.1) still drives AMD GPUs on kernels older than 6.6 (e.g. Debian 12's 6.1).
+# Mesa 26.1+ refuses amdgpu DRM < 3.54, which breaks VAAPI there. Older Mesa works fine on newer kernels too.
+FROM node:24-alpine3.22
 
 ARG TARGETARCH
 # ffmpeg; VAAPI drivers for optional GPU encoding (AMD via Mesa everywhere, Intel on x86 only); tini as init
