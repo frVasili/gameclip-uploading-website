@@ -24,6 +24,8 @@ plays right inside Discord. Friends get their own login and their own library.
 - **Optional GPU encoding** (AMD/Intel VAAPI) for faster exports.
 - One container, no database, nothing phones home. Plain Node + ffmpeg.
 
+![Library](docs/screenshot-library.png)
+
 ![Editor](docs/screenshot-editor.png)
 
 ## Run it
