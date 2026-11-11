@@ -54,7 +54,8 @@ export function ask({ title, body = '', actions = [{ label: 'OK', value: true, k
       ${input ? `<label for="dlgInput">${esc(input.label || '')}</label><input id="dlgInput" type="${input.type || 'text'}" value="${esc(input.value ?? '')}" placeholder="${esc(input.placeholder || '')}" ${input.attrs || ''}>` : ''}
       <div class="actions">${actions.map((a, i) => `<button type="${a.submit ? 'submit' : 'button'}" class="${a.kind || ''}" data-i="${i}">${esc(a.label)}</button>`).join('')}</div></form>`;
     document.body.append(d);
-    const done = (v) => { d.close(); d.remove(); resolve(v); };
+    // the answer is given at once; the box itself shrinks away for a moment first (see app.css "motion")
+    const done = (v) => { resolve(v); d.classList.add('out'); setTimeout(() => { d.close(); d.remove(); }, calm() ? 0 : 130); };
     const pick = (a) => done(input && a.submit ? d.querySelector('#dlgInput').value : a.value);
     d.querySelector('form').onsubmit = (e) => { e.preventDefault(); const a = actions.find((x) => x.submit); if (a) pick(a); };
     d.querySelector('.actions').onclick = (e) => { const b = e.target.closest('button'); if (b && b.type === 'button') pick(actions[b.dataset.i]); };
@@ -73,6 +74,12 @@ export const promptDialog = (title, { label = '', value = '', type = 'text', ok 
   ask({ title, body, input: { label, value, type, attrs }, actions: [{ label: 'Cancel', value: null }, { label: ok, submit: true, kind: 'primary' }] });
 
 // A small popover menu under `anchor`. items: [{ label, icon?, danger?, run }] or '-' for a divider.
+export const calm = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Plays a one-off animation class on an element and resolves when it ends (at once if motion is turned off).
+export function play(el, cls, ms = 400) {
+  if (!el || calm()) return Promise.resolve();
+  return new Promise((res) => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); setTimeout(() => { el.classList.remove(cls); res(); }, ms); });
+}
 export function menu(anchor, items) {
   document.querySelector('.menu')?.remove();
   const m = document.createElement('div');
@@ -146,6 +153,7 @@ export function toast(msg, bad = false) {
   const el = document.createElement('div');
   el.textContent = msg; if (bad) el.className = 'bad';
   box.append(el);
+  if (bad) el.style.setProperty('--stay', '5.7s');
   setTimeout(() => el.remove(), bad ? 6000 : 2500);
 }
 

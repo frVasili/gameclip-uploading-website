@@ -26,7 +26,8 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
   switches, badges; page rules in `library.css`, `editor.css`, `admin.css`). Fonts are self-hosted `.woff2` files
   (docs/font-licenses.md). No framework, no build, no external requests (CSP enforces it).
   The look is iOS 6-era skeuomorphism: solid materials with crisp 1px edges and embossed text. No blur, no glow,
-  no colour-wash gradients behind things. `/enctest` (`enctest.*`) measures the visitor's browser video encoders.
+  no colour-wash gradients behind things. Motion (end of app.css) is short and physical: alerts pop, notices flip in,
+  new items pop into place, deleted ones shrink away; all of it is off under `prefers-reduced-motion`. `/enctest` (`enctest.*`) measures the visitor's browser video encoders.
   UI rules: no grey helper paragraphs (use structure, defaults, labels, `title` tooltips); no `confirm()`/`prompt()`
   (use the dialogs); numbers and timecodes in `.num`.
   Pages are served with `/static/v-<hash>/` asset URLs (index.js `VERSION`, a hash of web/) cached as immutable,

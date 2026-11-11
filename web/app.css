@@ -174,3 +174,43 @@ dialog.dlg .actions { display: flex; gap: 8px; justify-content: flex-end; margin
 .login form label:first-child { margin-top: 0; }
 .login form button { width: 100%; margin-top: 18px; }
 .login .foot { margin-top: 16px; color: var(--ink3); font-size: 13px; }
+
+/* ---------- motion: the springy, physical moves of old iOS (off when the system asks for reduced motion) ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  /* alert boxes pop out with a little overshoot and shrink away */
+  dialog.dlg[open] { animation: alert-pop .3s cubic-bezier(.2,.9,.3,1); }
+  dialog.dlg[open]::backdrop { animation: fade-in .2s ease-out; }
+  dialog.dlg.out { animation: alert-out .13s ease-in forwards; }
+  @keyframes alert-pop { 0% { transform: scale(.6); opacity: 0; } 55% { transform: scale(1.05); opacity: 1; } 80% { transform: scale(.98); } 100% { transform: scale(1); } }
+  @keyframes alert-out { to { transform: scale(.85); opacity: 0; } }
+  @keyframes fade-in { from { opacity: 0; } }
+  /* menus and popovers grow out of the button that opened them */
+  .menu { transform-origin: 100% 0; animation: grow .14s ease-out; }
+  @keyframes grow { from { transform: scale(.8); opacity: 0; } }
+  /* notices flip up like a notification banner and drop away */
+  #toast { perspective: 600px; }
+  #toast > div { transform-origin: 50% 100%; backface-visibility: hidden; animation: banner-in .38s cubic-bezier(.2,.8,.3,1.15), banner-out .25s ease-in var(--stay, 2.2s) forwards; }
+  @keyframes banner-in { from { transform: rotateX(-90deg); opacity: 0; } }
+  @keyframes banner-out { to { transform: translateY(14px); opacity: 0; } }
+  /* a working progress bar is a moving barber pole */
+  .progress > div {
+    background-image: linear-gradient(-45deg, rgba(255,255,255,.2) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.2) 50%, rgba(255,255,255,.2) 75%, transparent 75%), linear-gradient(180deg, #8cc2ff, #3d8bf2 50%, #1f6fe0 50%, #3585ee);
+    background-size: 24px 24px, auto; animation: pole .7s linear infinite;
+  }
+  @keyframes pole { to { background-position: 24px 0, 0 0; } }
+  /* wrong password: the form shakes its head */
+  .shake { animation: shake .42s ease-in-out; }
+  @keyframes shake { 15% { transform: translateX(-12px); } 35% { transform: translateX(10px); } 55% { transform: translateX(-7px); } 75% { transform: translateX(4px); } }
+  /* new things pop into place, deleted things shrink to nothing */
+  .arrive { animation: arrive .45s cubic-bezier(.2,.9,.3,1); }
+  @keyframes arrive { 0% { transform: scale(.7); opacity: 0; } 60% { transform: scale(1.04); opacity: 1; } 100% { transform: scale(1); } }
+  .poof { animation: poof .26s ease-in forwards; pointer-events: none; }
+  @keyframes poof { to { transform: scale(.55); opacity: 0; filter: blur(6px); } }
+  /* moving between pages: the bar stays put, the page zooms in like an app opening */
+  @view-transition { navigation: auto; }
+  header.top { view-transition-name: topbar; }
+  ::view-transition-old(root) { animation: .14s ease-in both page-out; }
+  ::view-transition-new(root) { animation: .26s cubic-bezier(.2,.8,.3,1) both page-in; }
+  @keyframes page-out { to { opacity: 0; } }
+  @keyframes page-in { from { transform: scale(.94); opacity: 0; } }
+}

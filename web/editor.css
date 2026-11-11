@@ -138,3 +138,12 @@ details.more summary:hover { color: var(--ink); }
 }
 /* between these widths the trim bar wraps onto a second row: leave room for it so the page still fits one screen */
 @media (min-width: 1100px) and (max-width: 1439px) { .player video { --chrome: 416px; } }
+
+@media (prefers-reduced-motion: no-preference) {
+  .pop:not([hidden]) { transform-origin: 100% 100%; animation: grow .14s ease-out; }
+  /* a finished export flips up into view */
+  #result { perspective: 700px; }
+  #result .result { transform-origin: 50% 0; backface-visibility: hidden; animation: flip-down .5s cubic-bezier(.2,.8,.3,1.1); }
+  @keyframes flip-down { from { transform: rotateX(-88deg); opacity: 0; } }
+}
+@media (prefers-reduced-motion: no-preference) and (max-width: 799px) { .pop:not([hidden]) { transform-origin: 0 0; } }

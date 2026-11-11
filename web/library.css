@@ -134,3 +134,8 @@ dialog.dlg:has(.delsplit) { width: min(560px, calc(100vw - 28px)); }
 @media (max-width: 480px) { .delsplit { grid-template-columns: 1fr; } }
 
 .mi { white-space: nowrap; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .dropveil .orb { animation: bob .55s ease-in-out infinite alternate; }
+  @keyframes bob { to { transform: translateY(-14px); } }
+}

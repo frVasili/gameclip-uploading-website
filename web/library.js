@@ -1,5 +1,5 @@
 // Home page: sign in, upload recordings (in resumable pieces), list clips and recordings.
-import { api, $, esc, fmtBytes, fmtDuration, ago, toast, copy, jobText, renderHeader, ownerTag, sleep, icon, ask, confirmDialog, promptDialog, menu, blocks } from './common.js';
+import { api, $, esc, fmtBytes, fmtDuration, ago, toast, copy, jobText, renderHeader, ownerTag, sleep, icon, ask, confirmDialog, promptDialog, menu, blocks, play } from './common.js';
 
 let me = null, status = null, pollTimer = null, ownerFilter = '';
 
@@ -36,7 +36,7 @@ $('#loginForm').onsubmit = async (e) => {
     await api('/api/login', { method: 'POST', body: { name: $('#name').value, password: $('#password').value } });
     localStorage.setItem('clips-name', $('#name').value.trim());
     location.reload();
-  } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; btn.textContent = 'Sign in'; }
+  } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; btn.textContent = 'Sign in'; play(e.target, 'shake', 450); }
 };
 
 // ======================= upload =======================
@@ -172,6 +172,13 @@ window.addEventListener('beforeunload', (e) => { if (uploading) { e.preventDefau
 // ======================= lists =======================
 // A list's DOM is only replaced when its HTML changed, so hover, focus and loaded images survive the polling.
 const lastHtml = new WeakMap();
+// Clips and recordings that were not on the page a moment ago pop into place (not on the first load).
+let seen = null;
+function arrive() {
+  const els = [...document.querySelectorAll('.card[data-id], .rec[data-id]')];
+  if (seen) for (const el of els) if (!seen.has(el.dataset.id)) play(el, 'arrive', 450);
+  seen = new Set(els.map((el) => el.dataset.id));
+}
 function setHtml(el, html) { if (lastHtml.get(el) !== html) { lastHtml.set(el, html); el.innerHTML = html; } }
 
 let clipsById = new Map(), sourcesById = new Map(), counts = { clips: 0, sources: 0 };
@@ -189,7 +196,7 @@ document.addEventListener('error', (e) => {
 function clipCard(c) {
   const src = `/api/clips/${c.id}.jpg`;
   const thumb = c.hasThumb && !failedImgs.has(src) ? `<img class="timg" data-ph="play" src="${src}" alt="" loading="lazy" decoding="async">` : placeholder('play');
-  return `<article class="card">
+  return `<article class="card" data-id="${esc(c.id)}">
     <a class="thumb" data-clip="${esc(c.id)}" href="${esc(c.url)}" target="_blank" rel="noopener" aria-label="Open ${esc(c.title)}">${thumb}<span class="dur num">${fmtDuration(c.duration)}</span></a>
     <div class="cbody">
       <div class="ctitle" title="${esc(c.title)}">${esc(c.title)}</div>
@@ -212,7 +219,7 @@ function sourceRow(s) {
   const done = s.exports.filter((x) => x.state === 'done').length;
   const posterSrc = `/api/sources/${s.id}/poster.jpg`;
   const poster = s.status === 'ready' && !failedImgs.has(posterSrc) ? `<img class="timg" data-ph="scissors" src="${posterSrc}" alt="" loading="lazy" decoding="async">` : placeholder('scissors');
-  return `<article class="rec">
+  return `<article class="rec" data-id="${esc(s.id)}">
     <div class="poster">${poster}</div>
     <div class="rinfo">
       <div class="rname">${esc(s.name)}</div>
@@ -255,6 +262,7 @@ async function refresh() {
     counts = { clips: clips.length, sources: sources.length };
     setHtml($('#clips'), clips.map(clipCard).join('') || '<div class="empty" style="grid-column:1/-1">No clips yet</div>');
     setHtml($('#sources'), sources.map(sourceRow).join('') || '<div class="empty">No recordings</div>');
+    arrive();
     $('#clipCount').textContent = clips.length; $('#recCount').textContent = sources.length;
     setHtml($('#usage'), usageHtml(st));
     $('#retention').hidden = !st.retentionDays;
@@ -284,7 +292,7 @@ function clipMenu(btn, c) {
     '-',
     { label: 'Delete', icon: 'trash', danger: true, run: async () => {
       if (!(await confirmDialog('Delete this clip?', 'Its link stops working.', { ok: 'Delete', danger: true }))) return;
-      try { await api(`/api/clips/${c.id}`, { method: 'DELETE' }); toast('Clip deleted'); } catch (e) { toast(e.message, true); }
+      try { await api(`/api/clips/${c.id}`, { method: 'DELETE' }); toast('Clip deleted'); await play(document.querySelector(`.card[data-id="${c.id}"]`), 'poof', 260); } catch (e) { toast(e.message, true); }
       refresh();
     } },
   ]);
@@ -298,7 +306,7 @@ async function deleteSource(s) {
     ${clips.length ? `<div class="delbox kept"><span class="dlabel">Kept</span><b class="num">${clips.length} clip${clips.length > 1 ? 's' : ''}</b><span class="minis">${thumbs}</span><span>links keep working</span></div>` : ''}</div>`;
   const ok = await ask({ title: 'Delete this recording?', body, actions: [{ label: 'Cancel', value: false }, { label: 'Delete recording', value: true, kind: 'danger solid' }] });
   if (ok !== true) return;
-  try { await api(`/api/sources/${s.id}`, { method: 'DELETE' }); toast('Recording deleted'); } catch (e) { toast(e.message, true); }
+  try { await api(`/api/sources/${s.id}`, { method: 'DELETE' }); toast('Recording deleted'); await play(document.querySelector(`.rec[data-id="${s.id}"]`), 'poof', 260); } catch (e) { toast(e.message, true); }
   refresh();
 }
 
