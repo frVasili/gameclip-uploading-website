@@ -190,7 +190,7 @@ function clipCard(c) {
   const src = `/api/clips/${c.id}.jpg`;
   const thumb = c.hasThumb && !failedImgs.has(src) ? `<img class="timg" data-ph="play" src="${src}" alt="" loading="lazy" decoding="async">` : placeholder('play');
   return `<article class="card">
-    <a class="thumb" href="${esc(c.url)}" target="_blank" rel="noopener" aria-label="Open ${esc(c.title)}">${thumb}<span class="dur num">${fmtDuration(c.duration)}</span></a>
+    <a class="thumb" data-clip="${esc(c.id)}" href="${esc(c.url)}" target="_blank" rel="noopener" aria-label="Open ${esc(c.title)}">${thumb}<span class="dur num">${fmtDuration(c.duration)}</span></a>
     <div class="cbody">
       <div class="ctitle" title="${esc(c.title)}">${esc(c.title)}</div>
       <div class="cmeta num">${meta([`${c.height}p${c.fps || ''}`, fmtBytes(c.size), ago(c.created)])}</div>
@@ -331,3 +331,27 @@ $('#app').addEventListener('click', async (e) => {
 });
 
 start();
+
+// Hovering a clip's picture plays it silently in place (mouse only; phones just open the clip).
+if (matchMedia('(hover: hover)').matches) {
+  let timer = 0, playing = null;
+  const stop = () => { clearTimeout(timer); if (playing) { playing.removeAttribute('src'); playing.load(); playing.remove(); playing = null; } };
+  document.addEventListener('mouseover', (ev) => {
+    const t = ev.target.closest?.('a.thumb[data-clip]');
+    if (!t || (playing && playing.parentNode === t)) return;
+    stop();
+    timer = setTimeout(() => {
+      if (!t.isConnected || !t.matches(':hover')) return;
+      const v = document.createElement('video');
+      v.className = 'tvid'; v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
+      v.src = `/${t.dataset.clip}.mp4`;
+      v.addEventListener('playing', () => v.classList.add('on'), { once: true });
+      t.append(v); playing = v;
+      v.play().catch(() => {});
+    }, 350);
+  });
+  document.addEventListener('mouseout', (ev) => {
+    const t = ev.target.closest?.('a.thumb[data-clip]');
+    if (t && !t.contains(ev.relatedTarget)) stop();
+  });
+}

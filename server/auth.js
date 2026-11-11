@@ -30,19 +30,36 @@ if (adminPassword.length < 8) console.warn('WARNING: the admin password is short
 const adminDigest = crypto.createHash('sha256').update(adminPassword).digest();
 
 // ---- hashing ----
-const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
-const scrypt = (pw, salt) => new Promise((res, rej) => crypto.scrypt(pw, salt, 32, SCRYPT, (e, k) => (e ? rej(e) : res(k))));
+// Stored as scrypt$<salt>$<hash>$N=<n>,r=<r>,p=<p>. Older hashes have no 4th field: they were made with
+// N=16384, r=8, p=1. They still verify, and login() re-hashes them with the current cost.
+const LEGACY_PARAMS = { N: 16384, r: 8, p: 1 };
+const CURRENT_PARAMS = { N: 65536, r: 8, p: 1 };
+const paramString = (q) => `N=${q.N},r=${q.r},p=${q.p}`;
+const scrypt = (pw, salt, q) => new Promise((res, rej) =>
+  crypto.scrypt(pw, salt, 32, { ...q, maxmem: 128 * q.N * q.r + 8 * 1024 * 1024 }, (e, k) => (e ? rej(e) : res(k))));
+function parseHash(stored) {
+  const [kind, salt, hash, ps] = String(stored).split('$');
+  if (kind !== 'scrypt' || !salt || !hash) return null;
+  let q = LEGACY_PARAMS;
+  if (ps !== undefined) {
+    const m = /^N=(\d+),r=(\d+),p=(\d+)$/.exec(ps);
+    q = m && { N: +m[1], r: +m[2], p: +m[3] };
+    // refuse absurd costs from a damaged file (power-of-two N, bounded memory)
+    if (!q || q.N < 1024 || q.N > 2 ** 20 || (q.N & (q.N - 1)) || q.r < 1 || q.r > 16 || q.p < 1 || q.p > 4) return null;
+  }
+  return { salt: Buffer.from(salt, 'base64'), want: Buffer.from(hash, 'base64'), q };
+}
 async function hashPassword(pw) {
   const salt = crypto.randomBytes(16);
-  return `scrypt$${salt.toString('base64')}$${(await scrypt(pw, salt)).toString('base64')}`;
+  return `scrypt$${salt.toString('base64')}$${(await scrypt(pw, salt, CURRENT_PARAMS)).toString('base64')}$${paramString(CURRENT_PARAMS)}`;
 }
 async function verifyPassword(pw, stored) {
-  const [kind, salt, hash] = String(stored).split('$');
-  if (kind !== 'scrypt') return false;
-  const want = Buffer.from(hash, 'base64');
-  const got = await scrypt(pw, Buffer.from(salt, 'base64'));
-  return got.length === want.length && crypto.timingSafeEqual(got, want);
+  const h = parseHash(stored);
+  if (!h) return false;
+  const got = await scrypt(pw, h.salt, h.q);
+  return got.length === h.want.length && crypto.timingSafeEqual(got, h.want);
 }
+const needsRehash = (stored) => { const h = parseHash(stored); return !!h && paramString(h.q) !== paramString(CURRENT_PARAMS); };
 // Easy to type and read out, ~70 bits: e.g. "k7qm-3xvt-9hpe-wd2r-ty"
 export function generatePassword() {
   const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -52,25 +69,45 @@ export function generatePassword() {
 }
 
 // ---- rate limiting of failed logins ----
-const fails = new Map();   // ip -> { n, until }
+// Per client: 10 failures per 15 minutes lock that client out. Once 300 failures have been seen from all
+// clients together in 15 minutes, every client is cut to a single wrong try (see limited()). Client
+// addresses live in memory only (never logged or written to disk), and the map is bounded.
+const WINDOW = 15 * 60e3, PER_CLIENT = 10, GLOBAL = 300, MAX_CLIENTS = 5000;
+const fails = new Map();   // client -> { n, until }   (insertion order = oldest first)
 let globalFails = { n: 0, since: Date.now() };
+let lastLimitedFor = WINDOW;   // ms until the lock ends, for Retry-After
 function limited(ip) {
+  const now = Date.now();
+  if (now - globalFails.since > WINDOW) globalFails = { n: 0, since: now };
   const f = fails.get(ip);
-  if (f && f.until > Date.now() && f.n >= 8) return true;
-  if (Date.now() - globalFails.since > 15 * 60e3) globalFails = { n: 0, since: Date.now() };
-  return globalFails.n >= 100;
+  if (f && f.until > now && f.n >= PER_CLIENT) { lastLimitedFor = f.until - now; return true; }
+  // during a flood from many addresses, only clients that already got it wrong in this window are held back:
+  // someone who types the right password first time still gets in, so a flood can't lock the owner out
+  if (globalFails.n >= GLOBAL && f && f.until > now) { lastLimitedFor = Math.min(f.until, globalFails.since + WINDOW) - now; return true; }
+  return false;
 }
 function recordFail(ip) {
+  const now = Date.now();
   const f = fails.get(ip);
-  if (!f || f.until < Date.now()) fails.set(ip, { n: 1, until: Date.now() + 15 * 60e3 });
-  else f.n++;
+  if (!f || f.until < now) {
+    fails.delete(ip);
+    fails.set(ip, { n: 1, until: now + WINDOW });
+    if (fails.size > MAX_CLIENTS) {   // drop expired entries first, then the oldest: never "clear all" (that would reset everyone)
+      for (const [k, v] of fails) if (v.until < now) fails.delete(k);
+      for (const k of fails.keys()) { if (fails.size <= MAX_CLIENTS) break; fails.delete(k); }
+    }
+  } else f.n++;
+  if (now - globalFails.since > WINDOW) globalFails = { n: 0, since: now };
   globalFails.n++;
-  if (fails.size > 10000) fails.clear();
 }
+const tooMany = () => Object.assign(new Error('Too many wrong tries. Try again in 15 minutes.'), { status: 429, retryAfter: Math.max(1, Math.ceil(lastLimitedFor / 1000)) });
 
+// The client address, for rate limiting only. TRUST_PROXY=cloudflare: CF-Connecting-IP. TRUST_PROXY=proxy: the
+// last X-Forwarded-For entry (the one our own proxy appended; earlier ones can be forged by the client).
+// Otherwise the socket address; forwarding headers are ignored.
 export function clientIp(req) {
-  if (config.trustProxy === 'cloudflare' && req.headers['cf-connecting-ip']) return String(req.headers['cf-connecting-ip']);
-  if (config.trustProxy === 'proxy' && req.headers['x-forwarded-for']) return String(req.headers['x-forwarded-for']).split(',')[0].trim();
+  if (config.trustProxy === 'cloudflare' && req.headers['cf-connecting-ip']) return String(req.headers['cf-connecting-ip']).trim();
+  if (config.trustProxy === 'proxy' && req.headers['x-forwarded-for']) return String(req.headers['x-forwarded-for']).split(',').pop().trim();
   return req.socket.remoteAddress || '?';
 }
 
@@ -115,7 +152,7 @@ export function currentUser(req) {
 }
 
 // A hash nobody's password matches, so unknown names cost the same time as wrong passwords.
-const DUMMY_HASH = `scrypt$${crypto.randomBytes(16).toString('base64')}$${crypto.randomBytes(32).toString('base64')}`;
+const DUMMY_HASH = `scrypt$${crypto.randomBytes(16).toString('base64')}$${crypto.randomBytes(32).toString('base64')}$${paramString(CURRENT_PARAMS)}`;
 const normName = (n) => String(n ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40).toLowerCase();
 
 function startSession(req, res, uid) {
@@ -129,7 +166,7 @@ function startSession(req, res, uid) {
 // Returns { ok, user } or { ok:false, status, error }. Only the named account's password is checked.
 export async function login(req, res, name, password) {
   const ip = clientIp(req);
-  if (limited(ip)) return { ok: false, status: 429, error: 'Too many wrong tries. Try again in 15 minutes.' };
+  if (limited(ip)) { const e = tooMany(); return { ok: false, status: 429, error: e.message, retryAfter: e.retryAfter }; }
   password = String(password || '');
   const n = normName(name);
   let user = null, good = false;
@@ -142,7 +179,13 @@ export async function login(req, res, name, password) {
       if (good) user = adminUser();
     } else {
       good = await verifyPassword(password, u ? u.hash : DUMMY_HASH);
-      if (good && u) user = userById(u.id);
+      if (good && u) {
+        user = userById(u.id);
+        if (needsRehash(u.hash)) {   // old cost: upgrade now that we hold the plaintext; never fail the sign-in over it
+          const old = u.hash;
+          try { const nh = await hashPassword(password); if (u.hash === old) { u.hash = nh; save(); } } catch (e) { console.error('re-hashing a password failed:', e.message); }
+        }
+      }
     }
   }
   if (!user) {
@@ -158,7 +201,7 @@ export async function login(req, res, name, password) {
 export async function changePassword(req, user, current, password) {
   if (user.admin) throw Object.assign(new Error('The admin password is set on the server (ADMIN_PASSWORD).'), { status: 400 });
   const ip = clientIp(req);
-  if (limited(ip)) throw Object.assign(new Error('Too many wrong tries. Try again in 15 minutes.'), { status: 429 });
+  if (limited(ip)) throw tooMany();
   const u = db.users.find((x) => x.id === user.id);
   if (!u) throw new Error('No such user.');
   if (!(await verifyPassword(String(current || '').slice(0, 200), u.hash))) {
@@ -273,13 +316,13 @@ function findInvite(token) {
 const bad = (status, error) => Object.assign(new Error(error), { status });
 export function checkInvite(req, token) {
   const ip = clientIp(req);
-  if (limited(ip)) throw bad(429, 'Too many wrong tries. Try again in 15 minutes.');
+  if (limited(ip)) throw tooMany();
   if (!findInvite(token)) { recordFail(ip); throw bad(404, BAD_INVITE); }
   return { ok: true, siteName: config.siteName };
 }
 export async function acceptInvite(req, res, { token, name, password }) {
   const ip = clientIp(req);
-  if (limited(ip)) throw bad(429, 'Too many wrong tries. Try again in 15 minutes.');
+  if (limited(ip)) throw tooMany();
   const inv = findInvite(token);
   if (!inv) { recordFail(ip); throw bad(404, BAD_INVITE); }
   const n = cleanName(name, null);                 // validate first so a typo doesn't burn the invite

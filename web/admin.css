@@ -41,13 +41,13 @@ table.invites td.inote { overflow-wrap: anywhere; }
 /* the one-time secret */
 .secret {
   display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding: 12px 14px; border-radius: 12px;
-  background: linear-gradient(180deg, rgba(69,200,255,.14), rgba(69,200,255,.05)); border: 1px solid var(--aqua);
-  box-shadow: var(--glow), inset 0 0 24px rgba(69,200,255,.1);
+  background: linear-gradient(180deg, #fff6c9, #f3e08c); border: 1px solid #000; color: #2b2400;
+  box-shadow: inset 0 1px 0 #fff, 0 2px 5px rgba(0,0,0,.5);
 }
 .secret .slabel { font-weight: 600; }
 .secret .sval { display: flex; align-items: center; gap: 10px; }
-.secret code { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 8px; background: var(--well); overflow-wrap: anywhere; user-select: all; font: 500 15px var(--display); letter-spacing: .02em; }
-.secret .snote { font-size: 13px; color: var(--aqua2); }
+.secret code { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 6px; background: #fffdf0; color: #111; border: 1px solid #b9a955; overflow-wrap: anywhere; user-select: all; font: 500 15px var(--display); letter-spacing: .02em; }
+.secret .snote { font-size: 13px; color: #5a4d00; font-weight: 600; }
 table.users .secret { margin: 0 0 6px; max-width: 520px; }
 
 /* a friend's own account */

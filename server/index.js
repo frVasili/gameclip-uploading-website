@@ -27,7 +27,7 @@ const BASE_HEADERS = {
 };
 // pages of the app itself: only our own scripts; media/blob for the editor
 const APP_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
-const PAGES = { '/home': 'home.html', '/admin': 'admin.html', '/account': 'admin.html', '/invite': 'invite.html' };
+const PAGES = { '/home': 'home.html', '/admin': 'admin.html', '/account': 'admin.html', '/invite': 'invite.html', '/enctest': 'enctest.html' };
 
 // Versioned asset URLs. CDNs (Cloudflare's default "Browser Cache TTL" is 4 h) and browsers may keep scripts
 // longer than we ask, so pages link /static/v-<hash of web/>/file. A new release = new URLs = no stale scripts.
@@ -88,13 +88,13 @@ async function handle(req, res) {
     if (p === '/api/login' && m === 'POST') {
       const b = await smallBody(req);
       const r = await auth.login(req, res, b.name, b.password);
-      return r.ok ? json(res, 200, { user: r.user }) : json(res, r.status, { error: r.error });
+      return r.ok ? json(res, 200, { user: r.user }) : json(res, r.status, { error: r.error }, r.retryAfter ? { 'Retry-After': String(r.retryAfter) } : {});
     }
     // invite links: public, but the token is the credential (rate limited like logins)
     if ((p === '/api/invite/check' || p === '/api/invite/accept') && m === 'POST') {
       const b = await smallBody(req);
       try { return json(res, 200, p.endsWith('check') ? auth.checkInvite(req, b.token) : await auth.acceptInvite(req, res, b)); }
-      catch (e) { return json(res, e.status || 400, { error: e.message }); }
+      catch (e) { return json(res, e.status || 400, { error: e.message }, e.retryAfter ? { 'Retry-After': String(e.retryAfter) } : {}); }
     }
     if (p === '/api/logout' && m === 'POST') { auth.logout(req, res); return json(res, 200, { ok: true }); }
     const user = auth.currentUser(req);

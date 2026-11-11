@@ -1,0 +1,8 @@
+.actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+#out h2 { margin-top: 22px; }
+#out h2:first-child { margin-top: 0; }
+#out table { width: 100%; border-collapse: collapse; }
+#out th, #out td { text-align: left; padding: 6px 10px; }
+#out .yes { color: #6fdc8c; }
+#out .no { color: #ff7b7b; }
+#out .tablewrap { overflow-x: auto; }

@@ -12,11 +12,10 @@ import { config } from './config.js';
 import * as store from './store.js';
 
 export const VIDEO_EXT = new Set(['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'ts', 'm4v', 'mts', 'm2ts', 'wmv']);
-const meta = (id) => path.join(store.UPLOADS, `${id}.json`);
 const part = (id) => path.join(store.UPLOADS, `${id}.part`);
 
 export function getUpload(id) {
-  const u = store.UPLOAD_ID.test(id) ? store.readJson(meta(id)) : null;
+  const u = store.getUploadMeta(id);
   if (u && !u.pieces) {   // started before pieces could come in any order: everything up to `received` is there
     u.chunk = config.chunkBytes;
     u.pieces = [...Array(u.received === u.size ? Math.ceil(u.size / u.chunk) : Math.floor(u.received / u.chunk)).keys()];
@@ -25,12 +24,11 @@ export function getUpload(id) {
   return u;
 }
 export const pieceCount = (u) => Math.ceil(u.size / u.chunk);
-const saveUpload = (u) => store.writeJson(meta(u.id), u);
+const saveUpload = (u) => store.saveUploadMeta(u);
 
 export function removeUpload(id) {
   if (!store.UPLOAD_ID.test(id)) return;
-  fs.rmSync(meta(id), { force: true }); fs.rmSync(part(id), { force: true });
-  store.forgetUsage();
+  store.deleteUploadMeta(id); fs.rmSync(part(id), { force: true });
 }
 
 // Checks name/size/quota/disk and registers a new upload. Throws Error with .status.
@@ -43,7 +41,7 @@ export function startUpload(user, { name, size }) {
   if (!(size > 0)) throw fail(400, 'empty file');
   if (size > config.maxUploadBytes) throw fail(413, `the file is larger than ${(config.maxUploadBytes / 1e9).toFixed(0)} GB`);
   // Reserve all promised bytes: a sequence of empty upload records must not overbook disk or a user's quota.
-  const unfinished = fs.readdirSync(store.UPLOADS).filter((f) => f.endsWith('.json')).map((f) => store.readJson(path.join(store.UPLOADS, f))).filter(Boolean);
+  const unfinished = store.listUploadMeta();
   const remaining = (u) => { const total = Number(u.size), received = Number(u.received || 0); return Number.isFinite(total) ? Math.max(0, total - (Number.isFinite(received) ? received : 0)) : 0; };
   // The same file again (same owner, name and size), e.g. from another browser or after site data was cleared:
   // continue that upload instead of holding its space twice.
@@ -102,21 +100,19 @@ export function finishUpload(u, sid) {
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `source.${u.ext}`);
   fs.renameSync(part(u.id), file);
-  fs.rmSync(meta(u.id), { force: true });
+  store.deleteUploadMeta(u.id);
   return file;
 }
 export const partPath = part;
 
 // Unfinished uploads untouched for a day are dropped.
 export function sweepUploads() {
-  for (const f of fs.readdirSync(store.UPLOADS)) {
-    const m = /^([A-Za-z0-9]{20})\.json$/.exec(f);
-    if (!m) continue;
-    const u = getUpload(m[1]);
-    if (!u || Date.now() - u.updated > 86400e3) removeUpload(m[1]);
+  for (const { id } of store.listUploadMeta()) {
+    const u = getUpload(id);
+    if (!u || Date.now() - u.updated > 86400e3) removeUpload(id);
   }
   for (const f of fs.readdirSync(store.UPLOADS)) {   // orphaned .part files
     const m = /^([A-Za-z0-9]{20})\.part$/.exec(f);
-    if (m && !fs.existsSync(meta(m[1]))) fs.rmSync(path.join(store.UPLOADS, f), { force: true });
+    if (m && !store.getUploadMeta(m[1])) fs.rmSync(path.join(store.UPLOADS, f), { force: true });
   }
 }

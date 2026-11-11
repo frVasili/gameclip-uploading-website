@@ -13,7 +13,7 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 ## Sign in
 | method | path | |
 |---|---|---|
-| POST | `/api/login` | `{ name, password }` → `{ user }` + cookie. The name is the display name (case-insensitive; the admin's too). 401 "Wrong name or password." (same answer for an unknown name), 429 too many tries (per IP, 15 min) |
+| POST | `/api/login` | `{ name, password }` → `{ user }` + cookie. The name is the display name (case-insensitive; the admin's too). 401 "Wrong name or password." (same answer for an unknown name), 429 too many tries (per client address: 10 wrong tries in 15 min lock that client; a much higher global ceiling only slows mass guessing) with a `Retry-After` header |
 | POST | `/api/logout` | ends the session |
 | GET | `/api/me` | `{ user: { id, name, admin } \| null, siteName }` |
 | PATCH | `/api/me` | `{ name }` rename yourself (anyone signed in, the admin too) → `{ user }`. Names are 1-40 characters and unique, ignoring case. The name is also the sign-in name |

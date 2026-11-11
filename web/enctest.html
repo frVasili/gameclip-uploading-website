@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Encoding test</title>
+<link rel="icon" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/enctest.css">
+<script type="module" src="/static/enctest.js"></script>
+</head>
+<body>
+<header class="top"></header>
+<main>
+  <section class="panel">
+    <h2>Can this PC encode clips itself?</h2>
+    <div class="actions">
+      <button class="primary" id="run" type="button">Run test</button>
+      <button id="copy" type="button" hidden>Copy results</button>
+      <span id="progress" aria-live="polite"></span>
+    </div>
+  </section>
+  <section class="panel" id="out" hidden>
+    <h2>Browser</h2>
+    <table><tbody id="apis"></tbody></table>
+    <h2>Encoding speed (1080p60, 12 Mbit/s, 300 frames)</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Codec</th><th>Mode</th><th>Supported</th><th>Speed</th><th>Output</th><th>Result</th></tr></thead>
+      <tbody id="enc"></tbody></table></div>
+    <h2>Decoding (1080p60)</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Codec</th><th>Mode</th><th>Supported</th></tr></thead>
+      <tbody id="dec"></tbody></table></div>
+    <p>Server today: about 82 fps for 1080p60 with its graphics card, about 39 fps without.</p>
+  </section>
+</main>
+</body>
+</html>

@@ -227,7 +227,7 @@ function usageView(user) {
 }
 
 const body = async (req) => { const t = await readBody(req); try { return t ? JSON.parse(t) : {}; } catch { throw Object.assign(new Error('invalid JSON'), { status: 400 }); } };
-const sendErr = (res, e) => json(res, e.status || 400, { error: e.message });
+const sendErr = (res, e) => json(res, e.status || 400, { error: e.message }, e.retryAfter ? { 'Retry-After': String(e.retryAfter) } : {});
 
 // ---- router: returns true if it handled the request ----
 export async function handleApi(req, res, url, user) {

@@ -10,7 +10,7 @@ import { getClip, clipFile, CLIP_ID, DATA_DIR } from './store.js';
 import { userName } from './auth.js';
 import { send, sendFile, esc } from './http.js';
 
-const MEDIA_CACHE = 'public, max-age=3600';
+const MEDIA_CACHE = 'public, max-age=300';
 
 // Access log for clip fetches (JSON lines, no visitor IPs): shows how Discord's crawler and media proxy fetch
 // clips. Rotated at 20 MB (one old copy kept). ACCESS_LOG=false turns it off.
@@ -30,7 +30,7 @@ const fmtDuration = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).p
 
 export const notFoundPage = (msg = 'Nothing here.') => `<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Not found</title>
-<style>body{background:radial-gradient(900px 520px at 50% -160px,rgba(40,130,255,.35),transparent 70%) #050912;color:#b4c4d8;font:16px "Segoe UI",system-ui,sans-serif;display:grid;place-items:center;height:90vh;margin:0}a{color:#9be4ff}</style>
+<style>body{background:url(/static/linen.svg) #25272b;color:#c0c4cc;font:16px "Helvetica Neue","Segoe UI",system-ui,sans-serif;text-shadow:0 -1px 0 rgba(0,0,0,.6);display:grid;place-items:center;height:90vh;margin:0}a{color:#a8d3ff}</style>
 <p>${esc(msg)} <a href="/home">Go to ${esc(config.siteName)}</a></p>`;
 
 function watchPage(req, c) {
@@ -62,17 +62,19 @@ ${c.hasThumb ? `<meta property="og:image" content="${jpg}">
 <link rel="icon" href="/static/favicon.svg">
 <style>
   @font-face{font-family:"Chakra Petch";font-weight:600;font-display:swap;src:url(/static/chakra-petch-600.woff2) format("woff2")}
-  html,body{margin:0;background:#050912;color:#b4c4d8;font:15px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
-  body{min-height:100vh;background:radial-gradient(900px 520px at 12% -160px,rgba(40,130,255,.38),transparent 70%),radial-gradient(760px 460px at 92% -120px,rgba(0,210,190,.2),transparent 70%),linear-gradient(180deg,#071326,#050912 55%,#04060d) fixed}
-  main{max-width:min(1280px,100vw);margin:0 auto;padding:18px 20px 40px;box-sizing:border-box}
-  .bar{display:inline-flex;align-items:center;gap:9px;margin-bottom:14px;color:#eef6ff;text-decoration:none;font:600 17px "Chakra Petch",system-ui,sans-serif;letter-spacing:.02em}
-  .bar img{width:28px;height:28px;filter:drop-shadow(0 0 8px rgba(69,200,255,.6))}
-  video{width:100%;max-height:78vh;background:#000;border-radius:14px;display:block;border:1px solid rgba(190,225,255,.18);box-shadow:0 24px 70px rgba(0,0,0,.6),0 0 40px rgba(40,130,255,.12)}
-  h1{font:600 22px "Chakra Petch",system-ui,sans-serif;margin:16px 0 4px;color:#eef6ff;overflow-wrap:anywhere}
-  .meta{color:#8fa3bb;font-size:14px} .meta a{color:#9be4ff}
+  html,body{margin:0;background:#25272b;color:#c0c4cc;font:15px/1.45 "Helvetica Neue","Segoe UI",system-ui,-apple-system,sans-serif}
+  body{min-height:100vh;background:radial-gradient(120% 90% at 50% 0,transparent 55%,rgba(0,0,0,.35)) fixed,url(/static/linen.svg),#25272b;text-shadow:0 -1px 0 rgba(0,0,0,.6)}
+  header{display:flex;align-items:center;height:54px;padding:0 20px;background:linear-gradient(180deg,#5c606a,#3c3f46 50%,#2a2c31 50%,#232529);border-bottom:1px solid #000;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 2px 6px rgba(0,0,0,.45)}
+  main{max-width:min(1280px,100vw);margin:0 auto;padding:22px 20px 40px;box-sizing:border-box}
+  .bar{display:inline-flex;align-items:center;gap:9px;color:#f4f5f7;text-decoration:none;font:600 18px "Chakra Petch",system-ui,sans-serif;letter-spacing:.02em}
+  .bar img{width:28px;height:28px}
+  video{width:100%;max-height:78vh;background:#000;border-radius:8px;display:block;border:5px solid #000;box-sizing:border-box;box-shadow:0 1px 0 rgba(255,255,255,.12),0 8px 24px rgba(0,0,0,.5)}
+  h1{font:700 22px "Helvetica Neue","Segoe UI",system-ui,sans-serif;margin:16px 0 4px;color:#f4f5f7;overflow-wrap:anywhere}
+  .meta{color:#aeb3bc;font-size:14px} .meta a{color:#a8d3ff}
 </style>
-</head><body><main>
-<a class="bar" href="/home"><img src="/static/favicon.svg" alt="">${esc(config.siteName)}</a>
+</head><body>
+<header><a class="bar" href="/home"><img src="/static/favicon.svg" alt="">${esc(config.siteName)}</a></header>
+<main>
 <video src="${mp4}" ${c.hasThumb ? `poster="${jpg}"` : ''} controls playsinline preload="metadata"></video>
 <h1>${title}</h1>
 <div class="meta">by ${by} · ${desc} · <a href="${mp4}" download>download</a></div>
