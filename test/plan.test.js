@@ -78,3 +78,11 @@ test('custom size: cap is the typed MB, clamped, and the budget stays under it',
   assert.equal(plan(info, edit({ preset: 'custom', customMB: 'junk' })).cap, 100e6);
   assert.throws(() => plan(info, edit({ end: 600, preset: 'custom', customMB: 1 })), /Custom · 1 MB/);
 });
+
+test('a low-bitrate source is not inflated: the bitrate stays at or below the source', () => {
+  const lecture = { duration: 2800, width: 854, height: 480, fps: 25, bitrate: 600e3, audio: [{ n: 0 }] };
+  const p = plan(lecture, edit({ start: 0, end: 600, tracks: [{ n: 0, volume: 1 }], preset: 'discord' }));
+  assert.equal(p.mode.kind, 'crf');
+  assert.ok(p.mode.maxrate <= 600 - 128, `maxrate ${p.mode.maxrate}`);
+  assert.ok(p.estBytes < 600e3 / 8 * 600, `estimate ${p.estBytes}`);
+});

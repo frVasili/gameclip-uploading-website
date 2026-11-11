@@ -288,10 +288,15 @@ export function plan(info, edit) {
     }
     if (!out) out = choose(Math.min(360, maxH), Math.min(30, srcFps));
   }
-  const ceiling = qualityCeilingKbps(out.w, out.h, out.fps);
+  // Never spend more bits than the source had (scaled down with the picture): re-encoding a small, low-bitrate
+  // video must not make it bigger. Source audio is assumed to be ~128 kbps per track.
+  const srcKbps = info.bitrate > 0
+    ? Math.max(300, (info.bitrate / 1000 - 128 * Math.max(1, info.audio.length)) * Math.min(1, Math.pow((out.w * out.h * out.fps) / (info.width * info.height * srcFps), 0.75)))
+    : Infinity;
+  const ceiling = Math.round(Math.min(qualityCeilingKbps(out.w, out.h, out.fps), srcKbps));
   let mode;
   if (!preset.cap) mode = { kind: 'crf', crf: 18 };
-  else if (ceiling <= budget) mode = { kind: 'crf', crf: 20, maxrate: Math.round(Math.min(ceiling * 1.6, budget)) };
+  else if (ceiling <= budget) mode = { kind: 'crf', crf: 20, maxrate: Math.round(Math.min(ceiling * 1.6, budget, srcKbps)) };
   else mode = { kind: '2pass', kbps: Math.round(budget) };
   // rough: CRF usually lands well under the ceiling on game footage; 2-pass hits its target
   const vEst = mode.kind === '2pass' ? budget : Math.min(ceiling, budget) * 0.7;
