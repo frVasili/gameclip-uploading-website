@@ -20,7 +20,7 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
   planner, the render (x264 two-pass / CRF, or VAAPI), audio graph (leveling, mix, normalization, limiter).
 - `server/pages.js`: anonymous watch pages with Open Graph video tags, access log (no IPs).
 - `server/store.js`: files under `DATA_DIR`; ids; usage per owner.
-- `web/`: `home.html` + `library.js` (sign-in, upload, library; clips show as a 3D shelf, `shelf.js`, or a grid), `editor.html` + `editor.js`, `admin.html` +
+- `web/`: `home.html` + `library.js` (sign-in, upload, library), `editor.html` + `editor.js`, `admin.html` +
   `admin.js`, `invite.html` + `invite.js`, shared `common.js` (API calls, header, icons, dialogs `ask`/`confirmDialog`/
   `promptDialog`, popover `menu`, storage `blocks`) and `app.css` (the design system: dark linen (`linen.svg`), bevelled solid panels, gel buttons,
   switches, badges; page rules in `library.css`, `editor.css`, `admin.css`). Fonts are self-hosted `.woff2` files

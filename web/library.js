@@ -1,5 +1,4 @@
 // Home page: sign in, upload recordings (in resumable pieces), list clips and recordings.
-import { createShelf } from './shelf.js';
 import { api, $, esc, fmtBytes, fmtDuration, ago, toast, copy, jobText, renderHeader, ownerTag, sleep, icon, ask, confirmDialog, promptDialog, menu, blocks, play } from './common.js';
 
 let me = null, status = null, pollTimer = null, ownerFilter = '';
@@ -261,7 +260,7 @@ async function refresh() {
     status = st;
     clipsById = new Map(clips.map((c) => [c.id, c])); sourcesById = new Map(sources.map((s) => [s.id, s]));
     counts = { clips: clips.length, sources: sources.length };
-    showClips(clips);
+    setHtml($('#clips'), clips.map(clipCard).join('') || '<div class="empty" style="grid-column:1/-1">No clips yet</div>');
     setHtml($('#sources'), sources.map(sourceRow).join('') || '<div class="empty">No recordings</div>');
     arrive();
     $('#clipCount').textContent = clips.length; $('#recCount').textContent = sources.length;
@@ -278,27 +277,6 @@ async function refresh() {
   }
 }
 
-// ---- clips: a 3D shelf to flick through, or a plain grid (the choice is remembered on this device) ----
-let view = localStorage.getItem('clips-view') === 'grid' ? 'grid' : 'shelf', shelf = null, lastClips = [];
-function showClips(clips) {
-  lastClips = clips;
-  const useShelf = view === 'shelf' && clips.length > 0;
-  $('#shelf').hidden = !useShelf; $('#clips').hidden = useShelf;
-  for (const b of $('#viewSeg').children) b.classList.toggle('on', b.dataset.view === view);
-  if (useShelf) {
-    shelf ||= createShelf($('#shelf'), { showOwner: !!me.admin });
-    shelf.set(clips);
-  } else {
-    shelf?.stop();
-    setHtml($('#clips'), clips.map(clipCard).join('') || '<div class="empty" style="grid-column:1/-1">No clips yet</div>');
-  }
-}
-$('#viewSeg').onclick = (e) => {
-  const b = e.target.closest('button[data-view]'); if (!b || b.dataset.view === view) return;
-  view = b.dataset.view; localStorage.setItem('clips-view', view);
-  showClips(lastClips); if (view === 'shelf') shelf?.resume();
-};
-
 // ---- actions ----
 function clipMenu(btn, c) {
   menu(btn, [
@@ -314,7 +292,7 @@ function clipMenu(btn, c) {
     '-',
     { label: 'Delete', icon: 'trash', danger: true, run: async () => {
       if (!(await confirmDialog('Delete this clip?', 'Its link stops working.', { ok: 'Delete', danger: true }))) return;
-      try { await api(`/api/clips/${c.id}`, { method: 'DELETE' }); toast('Clip deleted'); await play(document.querySelector(`.card[data-id="${c.id}"], .cf[data-id="${c.id}"]`), 'poof', 260); } catch (e) { toast(e.message, true); }
+      try { await api(`/api/clips/${c.id}`, { method: 'DELETE' }); toast('Clip deleted'); await play(document.querySelector(`.card[data-id="${c.id}"]`), 'poof', 260); } catch (e) { toast(e.message, true); }
       refresh();
     } },
   ]);
