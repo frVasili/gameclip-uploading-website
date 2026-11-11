@@ -27,7 +27,17 @@ export const PRESETS = {
   small: { label: 'Small · 50 MB', cap: 50e6, audioKbps: 128 },
   upload: { label: 'Free Discord upload · 10 MB', cap: 10e6, audioKbps: 96 },
   original: { label: 'Best quality · no size limit', cap: null, audioKbps: 192 },
+  custom: { label: 'Custom', cap: null, audioKbps: 160, custom: true },   // cap comes from edit.customMB
 };
+export const CUSTOM_MB = { min: 1, max: 100000, def: 100 };
+// The preset with its cap filled in (custom: the size the user typed; audio gets thinner for small files).
+export function presetFor(edit) {
+  const p = PRESETS[edit.preset] || PRESETS.discord;
+  if (!p.custom) return p;
+  const mb = Math.min(CUSTOM_MB.max, Math.max(CUSTOM_MB.min, Number(edit.customMB) || CUSTOM_MB.def));
+  const cap = mb * 1e6;
+  return { ...p, label: `Custom · ${mb} MB`, cap, audioKbps: cap <= 10e6 ? 96 : cap <= 50e6 ? 128 : 160 };
+}
 
 // Video bitrate that already looks very good for game footage; we never go above it even when the cap
 // would allow more, so typical clips stay small and embed quickly. 12 Mbit/s at 1080p60, scaled by pixel rate.
@@ -248,7 +258,7 @@ const even = (x) => Math.max(2, Math.round(x / 2) * 2);
 
 // Picks output size/fps/bitrate. Exported for tests and for the editor's size estimate.
 export function plan(info, edit) {
-  const preset = PRESETS[edit.preset] || PRESETS.discord;
+  const preset = presetFor(edit);
   const dur = Math.max(0.1, edit.end - edit.start);
   const activeTracks = (edit.tracks || []).filter((t) => !t.muted && t.volume > 0 && info.audio[t.n]);
   const audioKbps = activeTracks.length ? preset.audioKbps : 0;

@@ -192,6 +192,10 @@ test('upload in pieces, prepare, export, public page; others cannot see it', { s
   assert.equal((await alex(`/api/clips/${j.clipId}`, { method: 'PATCH', raw: '{' })).status, 400, 'bad API JSON is not a 500');
   const mp4 = await fetch(`${BASE}/${j.clipId}.mp4`, { headers: { Range: 'bytes=0-99' } });
   assert.equal(mp4.status, 206);
+  const dl = await fetch(`${BASE}/${j.clipId}.mp4?download`, { method: 'HEAD' });
+  assert.equal(dl.status, 200);
+  assert.match(dl.headers.get('content-disposition'), /^attachment; filename="E2E clip\.mp4"; filename\*=UTF-8''E2E%20clip\.mp4$/);
+  assert.equal(mp4.headers.get('content-disposition'), null, 'plain links stay inline for embeds');
   assert.equal((await sam(`/api/clips/${j.clipId}`, { method: 'DELETE' })).status, 404, 'others cannot delete it');
   assert.equal((await alex(`/api/clips/${j.clipId}`, { method: 'DELETE' })).status, 200);
   assert.equal((await anon(`/${j.clipId}`)).status, 404);

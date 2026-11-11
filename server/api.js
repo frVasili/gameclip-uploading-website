@@ -9,7 +9,7 @@ import * as store from './store.js';
 import * as auth from './auth.js';
 import * as uploads from './uploads.js';
 import { json, sendFile, readBody } from './http.js';
-import { probe, prepare, convertPreview, render, plan, thumbnail, PRESETS, LEVELING, LOUDNESS, measureTrack, makeLeveledPreview, makePoster, gpu, detectGpu, maxOf } from './media.js';
+import { probe, prepare, convertPreview, render, plan, thumbnail, PRESETS, LEVELING, LOUDNESS, measureTrack, makeLeveledPreview, makePoster, CUSTOM_MB, gpu, detectGpu, maxOf } from './media.js';
 
 let FFMPEG_VERSION = 'unknown';
 try { FFMPEG_VERSION = execFileSync(process.env.FFMPEG || 'ffmpeg', ['-version']).toString().split('\n')[0].replace(/ Copyright.*/, ''); } catch { /* unknown */ }
@@ -168,6 +168,7 @@ function cleanEdit(info, e) {
     title: String(e.title ?? '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 200),
     thumbTime: num(e.thumbTime, start, end, start),
     preset: e.preset in PRESETS ? e.preset : 'discord',
+    customMB: Math.round(num(e.customMB, CUSTOM_MB.min, CUSTOM_MB.max, CUSTOM_MB.def)),
     resolution: ['auto', 'source', '2160', '1440', '1080', '720', '480'].includes(String(e.resolution)) ? String(e.resolution) : 'auto',
     fps: ['source', '60', '30'].includes(String(e.fps)) ? String(e.fps) : 'source',
     gpu: !!e.gpu,
@@ -236,7 +237,7 @@ export async function handleApi(req, res, url, user) {
 
   if (p === '/api/status' && m === 'GET') {
     const out = { user: { ...user, ...usageView(user) }, queue: queue.length + (running ? 1 : 0), siteName: config.siteName,
-      presets: Object.fromEntries(Object.entries(PRESETS).map(([k, v]) => [k, { label: v.label, cap: v.cap }])),
+      presets: Object.fromEntries(Object.entries(PRESETS).map(([k, v]) => [k, { label: v.label, cap: v.cap, ...(v.custom ? { custom: true, ...CUSTOM_MB } : {}) }])),
       leveling: Object.keys(LEVELING), loudnessTarget: LOUDNESS.I, gpu: { available: gpu.available, default: gpu.available && config.gpuDefault },
       chunkSize: config.chunkBytes, maxUpload: config.maxUploadBytes, publicBase: publicBase(req) };
     if (user.admin) Object.assign(out, { diskFree: store.diskFree(), ffmpeg: FFMPEG_VERSION, gpu: { ...gpu, default: gpu.available && config.gpuDefault }, running: jobView(running),

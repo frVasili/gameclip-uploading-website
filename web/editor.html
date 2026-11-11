@@ -101,7 +101,10 @@
             </div>
             <label class="inline gpu" id="gpuWrap" hidden title="Encodes on the graphics card: much faster, slightly lower quality for the same size"><input type="checkbox" id="gpu"> Fast GPU encode</label>
           </details>
-          <button class="go big" id="export">Export &amp; get link</button>
+          <div class="go-row">
+            <button class="go big" id="export">Export &amp; get link</button>
+            <button class="primary big icon" id="exportDl" title="Export &amp; download" aria-label="Export &amp; download"></button>
+          </div>
         </fieldset>
         <div id="result" aria-live="polite"></div>
       </section>

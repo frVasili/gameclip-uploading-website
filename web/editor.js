@@ -289,7 +289,7 @@ document.fonts?.ready.then(() => { dirtyWave = true; });
 function defaultEdit() {
   return { start: 0, end: info.duration, tracks: info.audio.map((a) => ({ n: a.n, volume: 1, muted: false, level: 'off' })),
     fadeIn: 0, fadeOut: 0, videoFade: false, normalize: true, gpu: gpuDefault, title: '', thumbTime: Math.min(1, info.duration / 2),
-    preset: 'discord', resolution: 'auto', fps: 'source' };
+    preset: 'discord', customMB: 100, resolution: 'auto', fps: 'source' };
 }
 function normalize(e) {
   const d = defaultEdit();
@@ -432,15 +432,28 @@ $('#matchLevels').onclick = async () => {
 // Size choices: one radio row per preset.
 function renderSizes() {
   $('#sizes').innerHTML = Object.entries(presets).map(([k, p]) =>
-    `<label class="size"><input type="radio" name="preset" value="${esc(k)}"><span>${esc(p.label)}</span></label>`).join('');
+    `<label class="size"><input type="radio" name="preset" value="${esc(k)}"><span>${esc(p.label)}</span>${p.custom
+      ? `<span class="custom"><input type="number" class="num" id="customMB" min="${p.min}" max="${p.max}" step="1" inputmode="numeric" aria-label="Custom size in MB"> MB</span>` : ''}</label>`).join('');
   syncSizes();
 }
 function syncSizes() {
   for (const l of document.querySelectorAll('#sizes .size')) {
     const r = l.querySelector('input'); r.checked = r.value === edit.preset; l.classList.toggle('on', r.checked);
   }
+  const c = $('#customMB'); if (c && document.activeElement !== c) c.value = edit.customMB;
 }
-$('#sizes').addEventListener('change', (ev) => { edit.preset = ev.target.value; syncSizes(); changed(); });
+$('#sizes').addEventListener('change', (ev) => {
+  if (ev.target.id === 'customMB') { ev.target.value = edit.customMB; return; }
+  edit.preset = ev.target.value; syncSizes(); changed();
+  if (edit.preset === 'custom') $('#customMB')?.select();
+});
+// typing a size picks "Custom"; the box keeps what was typed, the edit gets a clamped whole number
+$('#sizes').addEventListener('input', (ev) => {
+  if (ev.target.id !== 'customMB') return;
+  const p = presets.custom, n = Math.round(Number(ev.target.value));
+  if (!Number.isFinite(n) || n < p.min) return;
+  edit.customMB = Math.min(p.max, n); edit.preset = 'custom'; syncSizes(); changed();
+});
 
 function fillFields() {
   showTrim();
@@ -504,7 +517,7 @@ const updatePlan = debounce(async () => {
     if (seq !== planSeq) return;
     const cap = presets.discord?.cap || 250e6;
     const note = info.audio.length && !p.audioKbps ? '<div class="note bad">All audio muted</div>'
-      : !p.cap ? `<div class="note warn">Over ${esc(fmtBytes(cap))} will not embed in Discord</div>`
+      : !p.cap || (p.preset === 'custom' && p.estBytes > cap) ? `<div class="note warn">Over ${esc(fmtBytes(cap))} will not embed in Discord</div>`
       : p.mode.kind === '2pass' ? '<div class="note soft">Compressed harder to fit</div>' : '';
     el.innerHTML = `<div class="main num">${p.w}×${p.h} · ${p.fps} fps · ${fmtDuration(p.dur)} · ≈ ${fmtBytes(p.estBytes)}</div>${note}`;
   } catch (e) {
@@ -558,7 +571,10 @@ async function renderExports() {
 }
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-copy]'); if (b) copy(b.dataset.copy); });
 
-$('#export').onclick = async () => {
+$('#exportDl').innerHTML = icon('download');
+$('#export').onclick = () => runExport(false);
+$('#exportDl').onclick = () => runExport(true);
+async function runExport(download) {
   const form = $('#exportForm'), out = $('#result');
   form.disabled = true;
   out.innerHTML = '<div class="job"><div class="row"><span class="num" id="jobText">starting…</span></div><div class="progress"><div id="jobBar"></div></div></div>';
@@ -572,12 +588,15 @@ $('#export').onclick = async () => {
     if (final.state === 'error') throw new Error(final.error);
     const clip = await api(`/api/clips/${final.clipId}`);
     out.innerHTML = clipCard(clip, true);
-    navigator.clipboard?.writeText(clip.url).then(() => toast('Link copied - paste it in Discord'), () => {});
+    if (download) {
+      const a = Object.assign(document.createElement('a'), { href: `${clip.mp4}?download`, download: '' });
+      document.body.append(a); a.click(); a.remove();
+    } else navigator.clipboard?.writeText(clip.url).then(() => toast('Link copied - paste it in Discord'), () => {});
     renderExports();
   } catch (e) {
     out.innerHTML = `<div class="failed">Export failed: ${esc(e.message)}</div>`;
   } finally { form.disabled = false; }
-};
+}
 
 // ======================= start =======================
 async function load() {

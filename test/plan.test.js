@@ -67,3 +67,14 @@ test('audio graph: leveling per track, constant-gain normalization, true-peak li
 test('normalization gain is capped', () => {
   assert.equal(normGain(-60), 24); assert.equal(normGain(10), -24); assert.equal(normGain(-14), 0);
 });
+
+test('custom size: cap is the typed MB, clamped, and the budget stays under it', () => {
+  for (const mb of [8, 40, 300, 2000]) {
+    const p = plan(info, edit({ end: 120, preset: 'custom', customMB: mb }));
+    assert.equal(p.preset, 'custom'); assert.equal(p.cap, mb * 1e6);
+    const maxV = p.mode.kind === '2pass' ? p.mode.kbps : p.mode.maxrate;
+    assert.ok((maxV + p.audioKbps) * 125 * p.dur <= p.cap, `${mb} MB`);
+  }
+  assert.equal(plan(info, edit({ preset: 'custom', customMB: 'junk' })).cap, 100e6);
+  assert.throws(() => plan(info, edit({ end: 600, preset: 'custom', customMB: 1 })), /Custom · 1 MB/);
+});

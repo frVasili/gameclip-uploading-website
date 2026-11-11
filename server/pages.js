@@ -89,12 +89,19 @@ ${pageHeader()}
 <main>
 <video src="${mp4}" ${c.hasThumb ? `poster="${jpg}"` : ''} controls playsinline preload="metadata"></video>
 <h1>${title}</h1>
-<div class="meta"><span>by ${by} · ${desc}</span><a class="btn small" href="${mp4}" download>download</a></div>
+<div class="meta"><span>by ${by} · ${desc}</span><a class="btn small" href="${mp4}?download" download>download</a></div>
 </main></body></html>`;
 }
 
+// "Save as" with the clip's title as the file name (ASCII fallback + UTF-8 name, RFC 6266).
+function attachment(c) {
+  const name = (c.title || c.id).replace(/[\u0000-\u001f\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150) || c.id;
+  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/[%;]/g, '_');
+  return `attachment; filename="${ascii}.mp4"; filename*=UTF-8''${encodeURIComponent(name)}.mp4`;
+}
+
 // Returns true if this was a clip URL (handled), false otherwise.
-export function handleClipPage(req, res, pathname) {
+export function handleClipPage(req, res, pathname, query = new URLSearchParams()) {
   const m = /^\/([A-Za-z0-9]{12})(\.mp4|\.jpg)?$/.exec(pathname);
   if (!m) return false;
   if (req.method !== 'GET' && req.method !== 'HEAD') { send(res, 405, 'method not allowed', 'text/plain', { Allow: 'GET, HEAD' }); return true; }
@@ -103,7 +110,11 @@ export function handleClipPage(req, res, pathname) {
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   const clip = CLIP_ID.test(m[1]) ? getClip(m[1]) : null;
   if (!clip) { send(res, 404, notFoundPage('This clip does not exist (or was deleted).'), 'text/html; charset=utf-8', { 'Cache-Control': 'no-store' }); return true; }
-  if (m[2]) { sendFile(req, res, clipFile(clip.id, m[2].slice(1)), { 'Cache-Control': MEDIA_CACHE }); return true; }
+  if (m[2]) {
+    const headers = { 'Cache-Control': MEDIA_CACHE };
+    if (m[2] === '.mp4' && query.has('download')) headers['Content-Disposition'] = attachment(clip);
+    sendFile(req, res, clipFile(clip.id, m[2].slice(1)), headers); return true;
+  }
   send(res, 200, watchPage(req, clip), 'text/html; charset=utf-8', {
     'Cache-Control': 'no-cache',
     'Content-Security-Policy': "default-src 'none'; media-src 'self'; img-src 'self'; font-src 'self'; style-src 'unsafe-inline'",

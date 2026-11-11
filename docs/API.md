@@ -8,7 +8,7 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 
 ## Pages (no login needed to load them; their data needs one)
 `/` → 302 `/home` · `/home` sign-in + library · `/invite#<token>` accept an invite · `/edit/<sourceId>` editor · `/admin` users & server (admin) ·
-`/static/<file>` · `/healthz` · `/<clipId>` public watch page · `/<clipId>.mp4` · `/<clipId>.jpg`
+`/static/<file>` · `/healthz` · `/<clipId>` public watch page · `/<clipId>.mp4` (`?download`: saved under the clip's title) · `/<clipId>.jpg`
 
 ## Sign in
 | method | path | |
@@ -39,7 +39,8 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
   fadeIn: 0..10, fadeOut: 0..10, videoFade: bool,
   normalize: bool (default true),               // -14 LUFS, one constant gain + -1.5 dBTP limiter
   title, thumbTime,                             // thumbTime in source seconds, within start..end
-  preset: "discord"|"medium"|"small"|"upload"|"original",
+  preset: "discord"|"medium"|"small"|"upload"|"original"|"custom",
+  customMB: 1..100000 (default 100),           // size cap in MB when preset is "custom"
   resolution: "auto"|"source"|"2160"|"1440"|"1080"|"720"|"480", fps: "source"|"60"|"30",
   gpu: bool }                                   // VAAPI encode if the server has it (default: GPU_DEFAULT)
 ```

@@ -317,7 +317,7 @@ function clipMenu(btn, c) {
       try { await api(`/api/clips/${c.id}`, { method: 'PATCH', body: { title } }); } catch (e) { toast(e.message, true); }
       refresh();
     } },
-    { label: 'Download', icon: 'download', run: () => { const a = Object.assign(document.createElement('a'), { href: c.mp4, download: '' }); document.body.append(a); a.click(); a.remove(); } },
+    { label: 'Download', icon: 'download', run: () => { const a = Object.assign(document.createElement('a'), { href: `${c.mp4}?download`, download: '' }); document.body.append(a); a.click(); a.remove(); } },
     '-',
     { label: 'Delete', icon: 'trash', danger: true, run: async () => {
       if (!(await confirmDialog('Delete this clip?', 'Its link stops working.', { ok: 'Delete', danger: true }))) return;

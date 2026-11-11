@@ -68,7 +68,7 @@ async function handle(req, res) {
   const m = req.method;
 
   if (p === '/robots.txt') return send(res, 200, 'User-agent: *\nDisallow: /\n');
-  if (handleClipPage(req, res, p)) return;
+  if (handleClipPage(req, res, p, url.searchParams)) return;
   if (p === '/' && (m === 'GET' || m === 'HEAD')) { res.writeHead(302, { Location: '/home' }); return res.end(); }
 
   if (m === 'GET' || m === 'HEAD') {
