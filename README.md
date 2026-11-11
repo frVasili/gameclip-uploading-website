@@ -97,7 +97,7 @@ See [AGENTS.md](AGENTS.md) for how it's put together and [docs/API.md](docs/API.
 - **[Claude](https://github.com/claude)** (Anthropic, via [Claude Code](https://claude.com/claude-code)): wrote the code, tests and
   documentation, and ran the measurements behind the defaults (Discord embed sizes, audio leveling).
   Commits it wrote carry a `Co-Authored-By: Claude` trailer.
-- Typefaces: Chakra Petch and Source Sans 3, SIL Open Font License ([docs/font-licenses.md](docs/font-licenses.md)).
+- Typeface: Inter, SIL Open Font License ([docs/font-licenses.md](docs/font-licenses.md)).
 
 This is AI-written code: it has tests and was checked by hand, but read it before you trust it with anything important,
 as you would any small hobby project.

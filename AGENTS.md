@@ -22,11 +22,10 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
 - `server/store.js`: files under `DATA_DIR`; ids; usage per owner.
 - `web/`: `home.html` + `library.js` (sign-in, upload, library), `editor.html` + `editor.js`, `admin.html` +
   `admin.js`, `invite.html` + `invite.js`, shared `common.js` (API calls, header, icons, dialogs `ask`/`confirmDialog`/
-  `promptDialog`, popover `menu`, storage `blocks`) and `app.css` (the design system: dark linen (`linen.svg`), bevelled solid panels, gel buttons,
-  switches, badges; page rules in `library.css`, `editor.css`, `admin.css`). Fonts are self-hosted `.woff2` files
-  (docs/font-licenses.md). No framework, no build, no external requests (CSP enforces it).
-  The look is iOS 6-era skeuomorphism: solid materials with crisp 1px edges and embossed text. No blur, no glow,
-  no colour-wash gradients behind things. Motion (end of app.css) is short and physical: alerts pop, notices flip in,
+  `promptDialog`, popover `menu`, storage `blocks`) and `app.css` (the design system: Aqua, glossy push buttons,
+  switches, badges; page rules in `library.css`, `editor.css`, `admin.css`). One self-hosted font, Inter (`inter.woff2`, docs/font-licenses.md). No framework, no build, no external requests (CSP enforces it).
+  The look is "Aqua" (old OS X / iTunes): grey gradient toolbar, source-list sidebar that becomes a bottom tab bar
+  on phones, white content, glossy push buttons; light only. Motion (end of app.css) is short and physical: alerts pop, notices flip in,
   new items pop into place, deleted ones shrink away; all of it is off under `prefers-reduced-motion`. `/enctest` (`enctest.*`) measures the visitor's browser video encoders.
   UI rules: no grey helper paragraphs (use structure, defaults, labels, `title` tooltips); no `confirm()`/`prompt()`
   (use the dialogs); numbers and timecodes in `.num`.

@@ -17,6 +17,7 @@ async function start() {
   }
   me = d.user;
   renderHeader(me, siteName, { page: 'home' });
+  $('header.top .right').prepend($('#uploadBtn'));
   $('header.top').hidden = false; $('#app').hidden = false;
   if (me.admin) {
     const u = await api('/api/users').catch(() => null);
@@ -203,8 +204,8 @@ function clipCard(c) {
       <div class="cmeta num">${meta([`${c.height}p${c.fps || ''}`, fmtBytes(c.size), ago(c.created)])}</div>
       ${me.admin && c.owner !== me.id ? ownerTag(c.ownerName) : ''}
       <div class="cact">
-        <button class="primary small grow" data-copy="${esc(c.url)}" type="button">${icon('link')}Copy link</button>
-        <button class="icon small" data-clipmenu="${c.id}" type="button" aria-label="More actions" aria-haspopup="menu">${icon('more')}</button>
+        <button class="primary" data-copy="${esc(c.url)}" type="button">${icon('link')}Copy link</button>
+        <button class="icon" data-clipmenu="${c.id}" type="button" aria-label="More actions" aria-haspopup="menu">${icon('more')}</button>
       </div>
     </div></article>`;
 }
@@ -219,29 +220,56 @@ function sourceRow(s) {
   const done = s.exports.filter((x) => x.state === 'done').length;
   const posterSrc = `/api/sources/${s.id}/poster.jpg`;
   const poster = s.status === 'ready' && !failedImgs.has(posterSrc) ? `<img class="timg" data-ph="scissors" src="${posterSrc}" alt="" loading="lazy" decoding="async">` : placeholder('scissors');
+  const state = s.status !== 'ready' || pending.length ? st
+    : done ? `<span class="tag ok">${done} clip${done > 1 ? 's' : ''} made · safe to delete</span>` : '<span class="tag todo">not clipped yet</span>';
   return `<article class="rec" data-id="${esc(s.id)}">
     <div class="poster">${poster}</div>
     <div class="rinfo">
       <div class="rname">${esc(s.name)}</div>
-      <div class="rmeta num">${meta([fmtDuration(i.duration), `${i.width}×${i.height}`, `${i.fps} fps`, tracks, fmtBytes(s.size), ago(s.created), done ? `${done} clip${done > 1 ? 's' : ''}` : ''])}</div>
+      <div class="rmeta num">${meta([fmtDuration(i.duration), `${i.width}×${i.height}`, `${i.fps} fps`, tracks, ago(s.created)])}</div>
       ${me.admin && s.owner !== me.id ? ownerTag(s.ownerName) : ''}
       ${s.status === 'error' ? `<div class="bad small">${esc(s.error)}</div>` : ''}
       ${failed.length ? `<div class="fails">${failed.map((x) => `<div class="fail"><span class="bad small">Export "${esc(x.title || 'untitled')}" failed: ${esc(x.error)}</span>
-        <button class="small ghost" data-forget="${s.id}/${x.clipId}" type="button">Dismiss</button></div>`).join('')}</div>` : ''}
+        <button class="small" data-forget="${s.id}/${x.clipId}" type="button">Dismiss</button></div>`).join('')}</div>` : ''}
     </div>
-    <div class="ract">${st}
-      <a class="btn ${s.status === 'ready' && !done ? 'primary' : ''}" href="/edit/${s.id}">${done ? 'New clip' : 'Edit'}</a>
+    <div class="ract"><b class="rsize num">${esc(fmtBytes(s.size))}</b>${state}
+      <a class="btn ${s.status === 'ready' && !done ? 'primary' : ''}" href="/edit/${s.id}">New clip</a>
+      <button class="danger" data-delsrc="${s.id}" type="button">Delete</button>
       <button class="icon" data-srcmenu="${s.id}" type="button" aria-label="More actions" aria-haspopup="menu">${icon('more')}</button>
     </div></article>`;
 }
 
-function usageHtml(st) {
-  const u = st.user, busy = st.queue > 0 ? `<span class="badge busy">${st.queue} encoding</span>` : '';
-  if (u.quota) {
-    const f = Math.min(1, u.used / u.quota);
-    return `<div class="gauge" title="${fmtBytes(u.used)} of ${fmtBytes(u.quota)} used">${blocks(f)}<span class="num">${esc(fmtBytes(u.used))} / ${esc(fmtBytes(u.quota))}</span></div>${busy}`;
-  }
-  return `${st.diskFree != null ? `<div class="gauge"><span class="num">${esc(fmtBytes(st.diskFree))} free</span></div>` : ''}${busy}`;
+// Recordings of mine that already have a finished clip and nothing still exporting: deleting them loses nothing shared.
+const clipped = (sources) => sources.filter((x) => x.owner === me.id && x.status === 'ready'
+  && x.exports.some((e) => e.state === 'done') && !x.exports.some((e) => e.state === 'queued' || e.state === 'running'));
+const sum = (list) => list.reduce((n, x) => n + (x.size || 0), 0);
+
+// The capacity bar: how much is clips, how much is recordings, how much is left, and what could be freed.
+function storageHtml(st, clips, sources) {
+  const u = st.user, cb = sum(clips), rb = sum(sources);
+  const used = u.quota ? Math.max(u.used, cb + rb) : cb + rb, other = Math.max(0, used - cb - rb);   // other: editor previews, unfinished uploads
+  const total = u.quota || used + (st.diskFree || 0) || 1, free = Math.max(0, total - used);
+  const w = (x) => `width: ${Math.min(100, (x / total) * 100).toFixed(2)}%`;
+  const can = sum(clipped(sources));
+  return `<div class="st-head"><b>Storage</b><span class="num muted">${esc(fmtBytes(used))}${u.quota ? ` of ${esc(fmtBytes(u.quota))}` : ' used'}</span>
+      ${st.queue > 0 ? `<span class="badge busy">${st.queue} encoding</span>` : ''}<span class="grow"></span>
+      ${can ? `<span class="st-tip">${esc(fmtBytes(can))} of recordings are already clipped</span><button class="small" data-freeup type="button">Free up ${esc(fmtBytes(can))}</button>` : ''}</div>
+    <div class="capacity" role="img" aria-label="${esc(`Clips ${fmtBytes(cb)}, recordings ${fmtBytes(rb)}, free ${fmtBytes(free)}`)}"><i class="c-clips" style="${w(cb)}"></i><i class="c-recs" style="${w(rb)}"></i><i class="c-other" style="${w(other)}"></i></div>
+    <div class="st-legend num"><span><i class="swatch c-clips"></i>Clips <b>${esc(fmtBytes(cb))}</b></span><span><i class="swatch c-recs"></i>Recordings <b>${esc(fmtBytes(rb))}</b></span>
+      ${other > total * 0.005 ? `<span><i class="swatch c-other"></i>Other <b>${esc(fmtBytes(other))}</b></span>` : ''}<span><i class="swatch c-free"></i>${u.quota ? 'Free' : 'Free on disk'} <b>${esc(fmtBytes(free))}</b></span></div>`;
+}
+async function freeUp() {
+  const list = clipped([...sourcesById.values()]);
+  if (!list.length) return;
+  const names = list.slice(0, 6).map((x) => `<li>${esc(x.name)} <span class="num muted">${esc(fmtBytes(x.size))}</span></li>`).join('');
+  const ok = await ask({ title: `Delete ${list.length} recording${list.length > 1 ? 's' : ''} you have already clipped?`,
+    body: `<ul class="freelist">${names}${list.length > 6 ? `<li>and ${list.length - 6} more</li>` : ''}</ul><b>Your clips and their links stay.</b>`,
+    actions: [{ label: 'Cancel', value: false }, { label: `Free up ${fmtBytes(sum(list))}`, value: true, kind: 'danger solid' }] });
+  if (ok !== true) return;
+  let failed = 0;
+  for (const x of list) { try { await api(`/api/sources/${x.id}`, { method: 'DELETE' }); } catch { failed++; } }
+  toast(failed ? `${failed} could not be deleted` : 'Space freed', !!failed);
+  refresh();
 }
 
 // One big drop zone instead of the lists when there is nothing at all
@@ -264,7 +292,8 @@ async function refresh() {
     setHtml($('#sources'), sources.map(sourceRow).join('') || '<div class="empty">No recordings</div>');
     arrive();
     $('#clipCount').textContent = clips.length; $('#recCount').textContent = sources.length;
-    setHtml($('#usage'), usageHtml(st));
+    setHtml($('#storage'), storageHtml(st, clips, sources)); $('#storage').hidden = false;
+    for (const [id, n] of [['sideClips', clips.length], ['sideRecs', sources.length]]) { const e = document.getElementById(id); if (e) e.textContent = n || ''; }
     $('#retention').hidden = !st.retentionDays;
     if (st.retentionDays) $('#retention').textContent = `Recordings are deleted after ${st.retentionDays} days. Clips stay.`;
     syncEmpty();
@@ -328,6 +357,8 @@ $('#app').addEventListener('click', async (e) => {
   const d = b.dataset;
   try {
     if (d.copy) return copy(d.copy);
+    if ('freeup' in d) return freeUp();
+    if (d.delsrc) { const x = sourcesById.get(d.delsrc); return x && deleteSource(x); }
     if (d.clipmenu) { const c = clipsById.get(d.clipmenu); return c && clipMenu(b, c); }
     if (d.srcmenu) { const s = sourcesById.get(d.srcmenu); return s && sourceMenu(b, s); }
     if (d.forget) {
@@ -362,4 +393,14 @@ if (matchMedia('(hover: hover)').matches) {
     const t = ev.target.closest?.('a.thumb[data-clip]');
     if (t && !t.contains(ev.relatedTarget)) stop();
   });
+}
+
+// The source list marks Clips or Recordings, whichever section you are looking at.
+{
+  const mark = () => {
+    const r = $('#recordings')?.getBoundingClientRect(), atEnd = scrollY > 0 && scrollY + innerHeight >= document.documentElement.scrollHeight - 4;
+    const recs = !!r && !$('#lists').hidden && (r.top < innerHeight * 0.5 || atEnd);
+    for (const a of document.querySelectorAll('nav.side a[data-side]')) a.classList.toggle('on', (a.dataset.side === 'recordings') === recs);
+  };
+  addEventListener('scroll', mark, { passive: true }); addEventListener('hashchange', () => setTimeout(mark, 50));
 }

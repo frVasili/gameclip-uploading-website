@@ -1,63 +1,61 @@
-/* Account / people page. Builds on app.css. */
+/* Account / people page. Builds on app.css (Aqua). */
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .nowrap { white-space: nowrap; }
+main > div > h2.section:first-child { margin-top: 6px; }
 
-/* stat tiles */
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
-.tile {
-  display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 14px 16px; border-radius: var(--r);
-  background: var(--glass); border: 1px solid var(--glass-line); box-shadow: var(--hi), var(--shadow);
-}
-.tile .k, .mestat .k { font: 600 12px var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--ink3); }
-.tile .v { font-size: 22px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tile .v .num { font-size: 22px; }
+/* server summary: a row of small light panels */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 10px 14px; border-radius: var(--r); background: var(--glass); border: 1px solid var(--glass-line); box-shadow: var(--hi); }
+.tile .k, .mestat .k { font: 700 11px var(--body); text-transform: uppercase; color: #6c7a8c; text-shadow: var(--emboss); }
+.tile .v { font-size: 18px; font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile .v .num { font-size: 18px; }
 
-/* people table */
-.tablewrap { padding: 4px 10px; overflow-x: auto; }
+/* people: a classic striped list */
+.tablewrap { overflow-x: auto; border: 1px solid #c4c4c4; border-radius: var(--r); background: #fff; }
 table { border-collapse: collapse; width: 100%; }
-table.users th { text-align: left; padding: 11px 12px 9px; font: 600 12px var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--ink3); }
-table.users td { padding: 11px 12px; border-top: 1px solid var(--line); vertical-align: middle; }
+table.users th { text-align: left; padding: 5px 12px; font: 600 11px var(--body); color: var(--ink3); background: linear-gradient(#fbfbfb, #ececec); border-bottom: 1px solid #c4c4c4; white-space: nowrap; }
+table.users td { padding: 8px 12px; vertical-align: middle; }
+/* every person takes two rows (the second holds the one-time password), so stripe in fours */
+table.users tbody tr:nth-child(4n+3) td, table.users tbody tr:nth-child(4n+4) td { background: #f1f5fa; }
 table.users td.r, table.invites td.r { text-align: right; white-space: nowrap; }
-table.users tr.disabled td:not(.r) { opacity: .6; }
-table.users tr[data-secret] td { border-top: 0; padding-top: 0; }
+table.users tr.disabled td:not(.r) { opacity: .55; }
+table.users tr[data-secret] td { padding-top: 0; }
 .who { display: inline-flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-.who b { font-size: 15px; }
+.who b { font-size: 13px; }
 .store { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
 .store .blocks { width: 110px; }
-.adminpw { margin: 10px 4px 0; font-size: 13px; color: var(--ink3); }
 
 /* add / invite panels */
-.twin { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 28px; align-items: start; }
+.twin { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 24px; align-items: start; }
 .twin h2 { display: flex; align-items: center; gap: 10px; }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .fields .wide { grid-column: 1 / -1; }
-.twin form > button, #pwForm > button { margin-top: 16px; }
-table.invites { margin-top: 12px; }
+.twin form > button, #pwForm > button { margin-top: 14px; }
+table.invites { margin-top: 12px; border: 1px solid #c4c4c4; border-radius: var(--r); border-collapse: separate; border-spacing: 0; background: #fff; overflow: hidden; }
 table.invites:has(tbody:empty) { display: none; }
-table.invites td { padding: 8px 6px; border-top: 1px solid var(--line); font-size: 14px; }
+table.invites td { padding: 5px 10px; font-size: 13px; }
+table.invites tr:nth-child(even) td { background: #f1f5fa; }
 table.invites td.inote { overflow-wrap: anywhere; }
+table.invites .danger { color: var(--red); }
 @media (max-width: 900px) { .twin { grid-template-columns: 1fr; } }
 
-/* the one-time secret */
-.secret {
-  display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding: 12px 14px; border-radius: 12px;
-  background: linear-gradient(180deg, #fff6c9, #f3e08c); border: 1px solid #000; color: #2b2400;
-  box-shadow: inset 0 1px 0 #fff, 0 2px 5px rgba(0,0,0,.5);
-}
-.secret .slabel { font-weight: 600; }
-.secret .sval { display: flex; align-items: center; gap: 10px; }
-.secret code { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 6px; background: #fffdf0; color: #111; border: 1px solid #b9a955; overflow-wrap: anywhere; user-select: all; font: 500 15px var(--display); letter-spacing: .02em; }
-.secret .snote { font-size: 13px; color: #5a4d00; font-weight: 600; }
-table.users .secret { margin: 0 0 6px; max-width: 520px; }
+/* the one-time secret: a pale yellow note */
+.secret { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding: 10px 12px; border-radius: var(--r); background: #fff8d6; border: 1px solid #e2cf7a; color: #3a3200; }
+.secret .slabel { font-weight: 700; }
+.secret .sval { display: flex; align-items: center; gap: 8px; }
+.secret code { flex: 1; min-width: 0; padding: 4px 8px; border-radius: 4px; background: #fff; color: var(--ink); border: 1px solid #d8c872; overflow-wrap: anywhere; user-select: all; font: 500 14px var(--display); }
+.secret .snote { font-size: 12px; font-weight: 600; color: #6b5a00; }
+table.users .secret { margin: 0 0 4px; max-width: 520px; }
 
 /* a friend's own account */
 .selfview { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .mehead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.mehead .mename { font-size: 24px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.avatar.big { width: 56px; height: 56px; font-size: 20px; }
-.mestats { display: flex; flex-wrap: wrap; gap: 14px 36px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
-.mestat { display: flex; flex-direction: column; gap: 8px; }
-.mestat .v { font-size: 22px; }
+.mehead .mename { font-size: 22px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.avatar.big { width: 52px; height: 52px; font-size: 19px; }
+.mestats { display: flex; flex-wrap: wrap; gap: 14px 36px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.mestat { display: flex; flex-direction: column; gap: 6px; }
+.mestat .v { font-size: 20px; font-weight: 600; }
+.mestat .store, .mestat .v { min-height: 24px; display: flex; align-items: center; }
 .selfview form > label:first-of-type { margin-top: 0; }
 #pwForm > button { width: 100%; }
 @media (max-width: 900px) { .selfview { grid-template-columns: 1fr; } }
@@ -65,12 +63,10 @@ table.users .secret { margin: 0 0 6px; max-width: 520px; }
 @media (max-width: 700px) {
   .hide-sm { display: none; }
   .fields { grid-template-columns: 1fr; }
-  .store .blocks { display: none; }
-  .tiles { grid-template-columns: 1fr 1fr; gap: 10px; }
-  .tile { padding: 12px; } .tile .v, .tile .v .num { font-size: 18px; }
+  .store .blocks { width: 70px; }
+  .tiles { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
   table.users td, table.users th { padding-left: 8px; padding-right: 8px; }
   table.users td.r { padding-left: 0; }
   .secret .sval { flex-wrap: wrap; }
 }
-table.invites .danger { color: var(--red); }
-.mestat .store, .mestat .v { min-height: 28px; display: flex; align-items: center; }

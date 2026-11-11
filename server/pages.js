@@ -30,7 +30,8 @@ const fmtDuration = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).p
 
 export const notFoundPage = (msg = 'Nothing here.') => `<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Not found</title>
-<style>body{background:url(/static/linen.svg) #25272b;color:#c0c4cc;font:16px "Helvetica Neue","Segoe UI",system-ui,sans-serif;text-shadow:0 -1px 0 rgba(0,0,0,.6);display:grid;place-items:center;height:90vh;margin:0}a{color:#a8d3ff}</style>
+<style>@font-face{font-family:Inter;font-weight:100 900;font-display:swap;src:url(/static/inter.woff2) format("woff2")}
+body{background:#fff;color:#55585e;font:14px/1.45 Inter,"Lucida Grande","Helvetica Neue",system-ui,sans-serif;display:grid;place-items:center;height:90vh;margin:0;padding:0 16px;text-align:center}a{color:#1a6fe0}</style>
 <p>${esc(msg)} <a href="/home">Go to ${esc(config.siteName)}</a></p>`;
 
 function watchPage(req, c) {
@@ -44,7 +45,7 @@ function watchPage(req, c) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>${title} · ${esc(config.siteName)}</title>
-<meta name="theme-color" content="#2a97ff">
+<meta name="theme-color" content="#2f84f5">
 <meta property="og:site_name" content="${esc(config.siteName)}">
 <meta property="og:title" content="${title}">
 <meta property="og:description" content="${desc}">
@@ -61,16 +62,16 @@ ${c.hasThumb ? `<meta property="og:image" content="${jpg}">
 <meta property="og:video:height" content="${c.height}">
 <link rel="icon" href="/static/favicon.svg">
 <style>
-  @font-face{font-family:"Chakra Petch";font-weight:600;font-display:swap;src:url(/static/chakra-petch-600.woff2) format("woff2")}
-  html,body{margin:0;background:#25272b;color:#c0c4cc;font:15px/1.45 "Helvetica Neue","Segoe UI",system-ui,-apple-system,sans-serif}
-  body{min-height:100vh;background:radial-gradient(120% 90% at 50% 0,transparent 55%,rgba(0,0,0,.35)) fixed,url(/static/linen.svg),#25272b;text-shadow:0 -1px 0 rgba(0,0,0,.6)}
-  header{display:flex;align-items:center;height:54px;padding:0 20px;background:linear-gradient(180deg,#5c606a,#3c3f46 50%,#2a2c31 50%,#232529);border-bottom:1px solid #000;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 2px 6px rgba(0,0,0,.45)}
+  @font-face{font-family:Inter;font-weight:100 900;font-display:swap;src:url(/static/inter.woff2) format("woff2")}
+  html,body{margin:0;background:#fff;color:#1d1d1f;font:14px/1.45 Inter,"Lucida Grande","Helvetica Neue",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh}
+  header{display:flex;align-items:center;height:52px;padding:0 18px;background:linear-gradient(#ececec,#d2d2d2);border-bottom:1px solid #8e8e8e;box-shadow:inset 0 1px 0 #fafafa}
   main{max-width:min(1280px,100vw);margin:0 auto;padding:22px 20px 40px;box-sizing:border-box}
-  .bar{display:inline-flex;align-items:center;gap:9px;color:#f4f5f7;text-decoration:none;font:600 18px "Chakra Petch",system-ui,sans-serif;letter-spacing:.02em}
-  .bar img{width:28px;height:28px}
-  video{width:100%;max-height:78vh;background:#000;border-radius:8px;display:block;border:5px solid #000;box-sizing:border-box;box-shadow:0 1px 0 rgba(255,255,255,.12),0 8px 24px rgba(0,0,0,.5)}
-  h1{font:700 22px "Helvetica Neue","Segoe UI",system-ui,sans-serif;margin:16px 0 4px;color:#f4f5f7;overflow-wrap:anywhere}
-  .meta{color:#aeb3bc;font-size:14px} .meta a{color:#a8d3ff}
+  .bar{display:inline-flex;align-items:center;gap:9px;color:#333;text-decoration:none;font-weight:700;font-size:16px;text-shadow:0 1px 0 rgba(255,255,255,.8)}
+  .bar img{width:26px;height:26px}
+  video{width:100%;max-height:78vh;background:#000;display:block;border:1px solid #7d7d7d;box-sizing:border-box;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+  h1{font-weight:700;font-size:20px;margin:16px 0 4px;color:#1d1d1f;overflow-wrap:anywhere}
+  .meta{color:#77787b;font-size:13px} .meta a{color:#1a6fe0}
 </style>
 </head><body>
 <header><a class="bar" href="/home"><img src="/static/favicon.svg" alt="">${esc(config.siteName)}</a></header>

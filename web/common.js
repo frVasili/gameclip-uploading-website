@@ -19,23 +19,38 @@ export async function api(path, { method = 'GET', body } = {}) {
 export const initials = (name) => (String(name || '?').trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2) || '?').toUpperCase();
 export const ownerTag = (name) => `<span class="owner"><span class="avatar">${esc(initials(name))}</span>${esc(name)}</span>`;
 
-// Header shared by every signed-in page. `title` is optional (e.g. the file being edited).
-export function renderHeader(user, siteName, { page = '', title = '' } = {}) {
+// Toolbar and source list shared by every signed-in page. `title` is optional (e.g. the file being edited);
+// `side: false` leaves the source list out (the editor needs the width) and puts a Library button in the toolbar.
+export function renderHeader(user, siteName, { page = '', title = '', side = true } = {}) {
   document.title = title ? `${title} · ${siteName}` : siteName;
   const h = document.querySelector('header.top');
   const account = user.admin ? '/admin' : '/account';
   h.innerHTML = `<a class="brand" href="/home"><img src="/static/favicon.svg" alt=""><span>${esc(siteName)}</span></a>
-    <nav><a href="/home" class="${page === 'home' ? 'active' : ''}">Library</a><a href="${account}" class="${page === 'admin' ? 'active' : ''}">${user.admin ? 'People' : 'Account'}</a></nav>
+    <nav><a class="btn" href="/home">${icon('prev')}Library</a></nav>
     ${title ? `<h1 title="${esc(title)}">${esc(title)}</h1>` : ''}
     <div class="right"><span class="status" id="saved" aria-live="polite"></span>
       <a class="chip" href="${account}" title="Your account"><span class="avatar">${esc(initials(user.name))}</span><span class="who">${esc(user.name)}</span></a>
-      <button class="small ghost" id="logout">Sign out</button></div>`;
+      <button class="small" id="logout">Sign out</button></div>`;
   h.querySelector('#logout').onclick = async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); location.href = '/home'; };
+  document.body.classList.toggle('no-side', !side);
+  document.querySelector('nav.side')?.remove();
+  if (!side) return;
+  const n = document.createElement('nav');
+  n.className = 'side'; n.setAttribute('aria-label', 'Sections');
+  n.innerHTML = `<div class="sh">Library</div>
+    <a href="/home#clips" data-side="clips" class="${page === 'home' ? 'on' : ''}">${icon('film')}Clips <em id="sideClips"></em></a>
+    <a href="/home#recordings" data-side="recordings">${icon('tape')}Recordings <em id="sideRecs"></em></a>
+    <div class="sh">Site</div>
+    <a href="${account}" class="${page === 'admin' ? 'on' : ''}">${icon(user.admin ? 'people' : 'person')}${user.admin ? 'People' : 'Account'}</a>`;
+  h.after(n);
 }
 
 // Small line icons (inline SVG, 24x24 grid).
 const ICONS = {
   upload: 'M12 16V4M6 10l6-6 6 6M4 20h16', link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  film: 'M4 5h16v14H4zM8 5v14M16 5v14M4 9.5h4M4 14.5h4M16 9.5h4M16 14.5h4', tape: 'M3 6h18v12H3zM7 12a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0M13.800 12a1.600 1.600 0 1 0 3.200 0a1.600 1.600 0 1 0-3.200 0M8.600 13.600h6.800',
+  people: 'M9 11a3.5 3.5 0 1 0 0-7a3.5 3.5 0 0 0 0 7zM2.5 20c.6-3.4 3.200-5.500 6.500-5.500s5.900 2.100 6.500 5.500M16 4.500a3.500 3.500 0 0 1 0 6.500M18 14.800c2 .700 3.200 2.500 3.600 5.200', person: 'M12 11a3.500 3.500 0 1 0 0-7a3.500 3.500 0 0 0 0 7zM5 20c.700-3.500 3.500-5.500 7-5.500s6.300 2 7 5.500',
+  prev: 'M15 5l-7 7 7 7', next: 'M9 5l7 7-7 7',
   more: 'M5 12h.01M12 12h.01M19 12h.01', play: 'M7 4.5v15l12-7.5z', pause: 'M8 5v14M16 5v14', trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
   edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4', check: 'M5 12.5l4.5 4.5L19 7.5', x: 'M6 6l12 12M18 6L6 18', download: 'M12 4v12M6 11l6 6 6-6M4 20h16',
   open: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6', scissors: 'M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.1 7.9L20 20M8.1 16.1L20 4',

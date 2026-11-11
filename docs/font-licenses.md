@@ -1,11 +1,10 @@
 # Font licences
 
-The site serves two typefaces itself (web/*.woff2), both under the SIL Open Font License 1.1:
+The site serves one typeface itself (web/inter.woff2), under the SIL Open Font License 1.1:
 
-- **Chakra Petch** (Medium, SemiBold): Copyright 2018 The Chakra Petch Project Authors (https://github.com/m4rc1e/Chakra-Petch)
-- **Source Sans 3** (variable): Copyright Adobe (http://www.adobe.com/), with Reserved Font Name 'Source' (https://github.com/adobe-fonts/source-sans)
+- **Inter** (variable): Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)
 
-Files taken from the Fontsource packages (latin subset). Licence text:
+File taken from the Fontsource package (latin subset). Licence text:
 
 ```
 -----------------------------------------------------------

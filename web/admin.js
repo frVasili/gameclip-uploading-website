@@ -34,9 +34,9 @@ async function load() {
   const g = st.gpu || {};
   const tiles = [
     ['Free disk space', `<span class="num">${st.diskFree != null ? esc(fmtBytes(st.diskFree)) : '?'}</span>`],
-    ['Encodes running / waiting', `<span class="num">${st.queue}</span>`],
+    ['Encodes queued', `<span class="num">${st.queue}</span>`],
     ['GPU encoding', g.available ? `<span class="num ok" title="${esc(g.device)}${g.default ? ', on by default' : ', off by default'}">available</span>` : `<span class="num muted" title="${esc(g.error || '')}">off</span>`],
-    ['Recordings auto-delete', `<span class="num">${st.retentionDays ? `after ${st.retentionDays} days` : 'never'}</span>`],
+    ['Auto-delete', `<span class="num">${st.retentionDays ? `after ${st.retentionDays} days` : 'never'}</span>`],
     ['ffmpeg', `<span class="num" title="${esc(st.ffmpeg)}">${esc((String(st.ffmpeg).match(/version\s+(\S+)/) || [, st.ffmpeg])[1])}</span>`],
   ];
   $('#stats').innerHTML = tiles.map(([k, v]) => `<div class="tile"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
@@ -67,7 +67,7 @@ function renderRows(rows) {
       <td>${storage(u)}</td>
       <td class="hide-sm num">${u.self ? 'you' : u.lastLogin ? esc(ago(u.lastLogin)) : 'never'}</td>
       <td class="r"><button class="icon small" data-umenu="${esc(key)}" type="button" aria-label="Actions for ${esc(u.name)}" aria-haspopup="menu">${icon('more')}</button></td>
-    </tr>${u.id ? `<tr hidden data-secret="${u.id}"><td colspan="5"></td></tr>` : ''}`;
+    </tr><tr hidden${u.id ? ` data-secret="${u.id}"` : ''}><td colspan="5"></td></tr>`;
   }).join('');
 }
 

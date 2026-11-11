@@ -2,7 +2,12 @@
 #out h2 { margin-top: 22px; }
 #out h2:first-child { margin-top: 0; }
 #out table { width: 100%; border-collapse: collapse; }
-#out th, #out td { text-align: left; padding: 6px 10px; }
-#out .yes { color: #6fdc8c; }
-#out .no { color: #ff7b7b; }
-#out .tablewrap { overflow-x: auto; }
+#out .tablewrap, #out table:not(.tablewrap table) { overflow-x: auto; }
+#out .tablewrap { border: 1px solid #c4c4c4; border-radius: var(--r); background: #fff; }
+#out th { text-align: left; padding: 5px 10px; font: 600 11px var(--body); color: var(--ink3); background: linear-gradient(#fbfbfb, #ececec); border-bottom: 1px solid #c4c4c4; white-space: nowrap; }
+#out td { text-align: left; padding: 6px 10px; }
+#out tbody tr:nth-child(odd) td { background: #fff; }
+#out tbody tr:nth-child(even) td { background: #f1f5fa; }
+#out .yes { color: var(--lime); font-weight: 600; }
+#out .no { color: var(--red); font-weight: 600; }
+main > .panel + .panel { margin-top: 16px; }

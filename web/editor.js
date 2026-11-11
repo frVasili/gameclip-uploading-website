@@ -3,7 +3,7 @@ import { api, $, esc, fmtBytes, fmtTime, fmtDuration, parseTime, toast, copy, de
 
 const sid = location.pathname.split('/').pop();
 const base = `/api/sources/${sid}`;
-const COLORS = ['#5aafff', '#8fe04a', '#ffc24a', '#c58bff', '#ff7a9c', '#4fe3c1'];
+const COLORS = ['#2f7fe0', '#4aa52a', '#e08a12', '#8a52d6', '#d9457a', '#1fa88a'];
 const MIN_LEN = 0.5;
 
 const video = $('#video'), canvas = $('#timeline'), overlay = $('#overlay'), fadeOverlay = $('#fadeOverlay');
@@ -155,23 +155,23 @@ function drawWaves() {   // cached: only redrawn when the view, the tracks or th
   c.clearRect(0, 0, W, H);
   const lh = laneH(), bottom = H - MARK;
   // lanes (drawn first so the grid shows on top)
-  c.fillStyle = '#17181b'; c.fillRect(0, 0, W, H);
-  lanes.forEach((_, k) => { c.fillStyle = k % 2 ? '#1b1c20' : '#17181b'; c.fillRect(0, RULER + k * lh, W, lh); });
+  c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
+  lanes.forEach((_, k) => { c.fillStyle = k % 2 ? '#f6f8fb' : '#fff'; c.fillRect(0, RULER + k * lh, W, lh); });
   // ruler
-  c.fillStyle = '#2c2e33'; c.fillRect(0, 0, W, RULER);
-  c.fillStyle = '#000'; c.fillRect(0, RULER - 1, W, 1);
+  { const g = c.createLinearGradient(0, 0, 0, RULER); g.addColorStop(0, '#f7f7f7'); g.addColorStop(1, '#dedede'); c.fillStyle = g; c.fillRect(0, 0, W, RULER); }
+  c.fillStyle = '#9a9a9a'; c.fillRect(0, RULER - 1, W, 1);
   const span = view.t1 - view.t0;
   const step = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800].find((s) => (s / span) * W >= 70) || 3600;
-  c.font = '500 11px "Chakra Petch", system-ui, sans-serif'; c.fillStyle = '#c0c4cc'; c.strokeStyle = 'rgba(255,255,255,.07)'; c.lineWidth = 1; c.textBaseline = 'middle';
+  c.font = '500 11px Inter, sans-serif'; c.fillStyle = '#4a4d52'; c.strokeStyle = 'rgba(0,0,0,.09)'; c.lineWidth = 1; c.textBaseline = 'middle';
   for (let t = Math.ceil(view.t0 / step) * step; t <= view.t1; t += step) {
     const x = Math.round(xOf(t)) + 0.5;
     c.beginPath(); c.moveTo(x, RULER - 6); c.lineTo(x, bottom); c.stroke();
     c.fillText(fmtTime(t, step < 1 ? 1 : 0), x + 4, RULER / 2);
   }
   // lane separators and waveforms
-  lanes.forEach((_, k) => { c.fillStyle = '#0c0d0e'; c.fillRect(0, RULER + (k + 1) * lh - 1, W, 1); });
+  lanes.forEach((_, k) => { c.fillStyle = '#c9ced6'; c.fillRect(0, RULER + (k + 1) * lh - 1, W, 1); });
   if (!info.audio.length) {
-    c.fillStyle = '#c0c4cc'; c.font = '14px "Source Sans 3", system-ui, sans-serif'; c.fillText('This video has no audio tracks', 12, RULER + lh / 2);
+    c.fillStyle = '#55585e'; c.font = '13px Inter, sans-serif'; c.fillText('This video has no audio tracks', 12, RULER + lh / 2);
   }
   lanes.forEach((ti, k) => {
     const y0 = RULER + k * lh, mid = y0 + lh / 2, e = edit.tracks[ti], p = peaks[ti];
@@ -202,11 +202,11 @@ function draw() {
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   const xs = xOf(edit.start), xe = xOf(edit.end), bottom = H - MARK;
   // dim what gets cut
-  c.fillStyle = 'rgba(0,0,0,.62)';
+  c.fillStyle = 'rgba(150,155,165,.55)';
   if (xs > 0) c.fillRect(0, RULER, Math.min(W, xs), bottom - RULER);
   if (xe < W) c.fillRect(Math.max(0, xe), RULER, W - Math.max(0, xe), bottom - RULER);
   // fades
-  c.fillStyle = 'rgba(90,175,255,.22)';
+  c.fillStyle = 'rgba(47,132,245,.2)';
   if (edit.fadeIn > 0) { c.beginPath(); c.moveTo(xs, RULER); c.lineTo(xOf(edit.start + edit.fadeIn), RULER); c.lineTo(xs, bottom); c.fill(); }
   if (edit.fadeOut > 0) { c.beginPath(); c.moveTo(xe, RULER); c.lineTo(xOf(edit.end - edit.fadeOut), RULER); c.lineTo(xe, bottom); c.fill(); }
   // trim handles
@@ -214,7 +214,7 @@ function draw() {
     if (x < -10 || x > W + 10) continue;
     c.save();
 
-    c.fillStyle = '#5aafff'; c.fillRect(x - 1, RULER, 2, bottom - RULER);
+    c.fillStyle = '#2f84f5'; c.fillRect(x - 1, RULER, 2, bottom - RULER);
     c.beginPath(); c.roundRect(side > 0 ? x - 1 : x - 9, 0, 10, RULER, 3); c.fill();
     c.restore();
     c.fillStyle = '#fff'; c.fillRect(side > 0 ? x + 2 : x - 5, 6, 2, RULER - 12);
@@ -223,13 +223,13 @@ function draw() {
   // thumbnail marker
   const xt = xOf(edit.thumbTime);
   if (xt >= 0 && xt <= W) {
-    c.fillStyle = '#ffc24a'; c.beginPath(); c.moveTo(xt, bottom + 1); c.lineTo(xt - 5, H); c.lineTo(xt + 5, H); c.fill();
+    c.fillStyle = '#e8a010'; c.beginPath(); c.moveTo(xt, bottom + 1); c.lineTo(xt - 5, H); c.lineTo(xt + 5, H); c.fill();
   }
   // playhead
   const xp = xOf(video.currentTime);
   if (xp >= 0 && xp <= W) {
     c.save();
-    c.fillStyle = '#fff'; c.fillRect(Math.round(xp) - 0.5, RULER - 4, 1.5, bottom - RULER + 4);
+    c.fillStyle = '#b3261e'; c.fillRect(Math.round(xp) - 0.5, RULER - 4, 1.5, bottom - RULER + 4);
     c.beginPath(); c.moveTo(xp - 5, RULER - 8); c.lineTo(xp + 5, RULER - 8); c.lineTo(xp, RULER - 2); c.fill();
     c.restore();
   }
@@ -569,7 +569,7 @@ async function load() {
   const { user, siteName } = await requireUser();
   source = await api(base);
   info = source.info;
-  renderHeader(user, siteName, { title: user.admin && source.owner !== user.id ? `${source.name} (${source.ownerName})` : source.name });
+  renderHeader(user, siteName, { side: false, title: user.admin && source.owner !== user.id ? `${source.name} (${source.ownerName})` : source.name });
   $('#title').placeholder = source.name.replace(/\.[^.]+$/, '');
   while (source.status !== 'ready') {
     if (source.status === 'error') { overlay.innerHTML = `<div class="bad">This video could not be prepared:<br>${esc(source.error)}</div>`; return; }
