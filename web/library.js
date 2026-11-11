@@ -1,5 +1,5 @@
 // Home page: sign in, upload recordings (in resumable pieces), list clips and recordings.
-import { api, $, esc, fmtBytes, fmtDuration, ago, toast, copy, jobText, renderHeader, ownerTag, sleep, icon, ask, confirmDialog, promptDialog, menu, blocks, play } from './common.js';
+import { api, $, esc, fmtBytes, fmtDuration, ago, toast, copy, jobText, renderHeader, ownerTag, sleep, icon, ask, confirmDialog, promptDialog, menu, blocks, play, calm } from './common.js';
 
 let me = null, status = null, pollTimer = null, ownerFilter = '';
 
@@ -402,5 +402,23 @@ if (matchMedia('(hover: hover)').matches) {
     const recs = !!r && !$('#lists').hidden && (r.top < innerHeight * 0.5 || atEnd);
     for (const a of document.querySelectorAll('nav.side a[data-side]')) a.classList.toggle('on', (a.dataset.side === 'recordings') === recs);
   };
-  addEventListener('scroll', mark, { passive: true }); addEventListener('hashchange', () => setTimeout(mark, 50));
+  addEventListener('scroll', mark, { passive: true });
+  // Clips = the top of the page, Recordings = its heading just under the toolbar. Always glide there, also when
+  // the address already ends in that name (a plain link would do nothing the second time).
+  const go = (which, smooth = true) => {
+    const h = $('#recordings'), bar = $('header.top').offsetHeight;
+    const top = which === 'recordings' && h && !$('#lists').hidden ? h.getBoundingClientRect().top + scrollY - bar - 12 : 0;
+    scrollTo({ top: Math.max(0, top), behavior: smooth && !calm() ? 'smooth' : 'auto' });
+  };
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest?.('nav.side a[data-side]'); if (!a) return;
+    e.preventDefault();
+    history.replaceState(null, '', a.dataset.side === 'recordings' ? '#recordings' : location.pathname);
+    go(a.dataset.side);
+  });
+  // arriving from another page with /home#recordings: the list is not there yet when the browser tries to jump
+  if (location.hash === '#recordings') {
+    const t = setInterval(() => { if ($('#sources').children.length || !$('#bigEmpty').hidden) { clearInterval(t); go('recordings', false); } }, 100);
+    setTimeout(() => clearInterval(t), 8000);
+  }
 }
