@@ -201,7 +201,7 @@ function clipCard(c) {
     <a class="thumb" data-clip="${esc(c.id)}" href="${esc(c.url)}" target="_blank" rel="noopener" aria-label="Open ${esc(c.title)}">${thumb}<span class="dur num">${fmtDuration(c.duration)}</span></a>
     <div class="cbody">
       <div class="ctitle" title="${esc(c.title)}">${esc(c.title)}</div>
-      <div class="cmeta num">${meta([`${c.height}p${c.fps || ''}`, fmtBytes(c.size), ago(c.created)])}</div>
+      <div class="cmeta num"><span class="wide">${c.height}p${c.fps || ''} · </span>${esc(fmtBytes(c.size))} · ${esc(ago(c.created))}</div>
       ${me.admin && c.owner !== me.id ? ownerTag(c.ownerName) : ''}
       <div class="cact">
         <button class="primary" data-copy="${esc(c.url)}" type="button">${icon('link')}Copy link</button>
@@ -221,21 +221,21 @@ function sourceRow(s) {
   const posterSrc = `/api/sources/${s.id}/poster.jpg`;
   const poster = s.status === 'ready' && !failedImgs.has(posterSrc) ? `<img class="timg" data-ph="scissors" src="${posterSrc}" alt="" loading="lazy" decoding="async">` : placeholder('scissors');
   const state = s.status !== 'ready' || pending.length ? st
-    : done ? `<span class="tag ok">${done} clip${done > 1 ? 's' : ''} made · safe to delete</span>` : '<span class="tag todo">not clipped yet</span>';
+    : done ? `<span class="tag ok">${done} clip${done > 1 ? 's' : ''} made<span class="wide"> · safe to delete</span></span>` : '<span class="tag todo">not clipped yet</span>';
   return `<article class="rec" data-id="${esc(s.id)}">
     <div class="poster">${poster}</div>
     <div class="rinfo">
       <div class="rname">${esc(s.name)}</div>
-      <div class="rmeta num">${meta([fmtDuration(i.duration), `${i.width}×${i.height}`, `${i.fps} fps`, tracks, ago(s.created)])}</div>
+      <div class="rmeta num">${fmtDuration(i.duration)}<span class="wide"> · ${i.width}×${i.height} · ${i.fps} fps · ${tracks} · ${esc(ago(s.created))}</span><span class="narrow"> · ${esc(fmtBytes(s.size))}</span></div>
       ${me.admin && s.owner !== me.id ? ownerTag(s.ownerName) : ''}
       ${s.status === 'error' ? `<div class="bad small">${esc(s.error)}</div>` : ''}
       ${failed.length ? `<div class="fails">${failed.map((x) => `<div class="fail"><span class="bad small">Export "${esc(x.title || 'untitled')}" failed: ${esc(x.error)}</span>
         <button class="small" data-forget="${s.id}/${x.clipId}" type="button">Dismiss</button></div>`).join('')}</div>` : ''}
     </div>
-    <div class="ract"><b class="rsize num">${esc(fmtBytes(s.size))}</b>${state}
-      <a class="btn ${s.status === 'ready' && !done ? 'primary' : ''}" href="/edit/${s.id}">New clip</a>
+    <div class="ract"><b class="rsize num">${esc(fmtBytes(s.size))}</b><span class="rstate">${state}</span>
+      <span class="rbtns"><a class="btn ${s.status === 'ready' && !done ? 'primary' : ''}" href="/edit/${s.id}">New clip</a>
       <button class="danger" data-delsrc="${s.id}" type="button">Delete</button>
-      <button class="icon" data-srcmenu="${s.id}" type="button" aria-label="More actions" aria-haspopup="menu">${icon('more')}</button>
+      <button class="icon" data-srcmenu="${s.id}" type="button" aria-label="More actions" aria-haspopup="menu">${icon('more')}</button></span>
     </div></article>`;
 }
 
@@ -253,7 +253,7 @@ function storageHtml(st, clips, sources) {
   const can = sum(clipped(sources));
   return `<div class="st-head"><b>Storage</b><span class="num muted">${esc(fmtBytes(used))}${u.quota ? ` of ${esc(fmtBytes(u.quota))}` : ' used'}</span>
       ${st.queue > 0 ? `<span class="badge busy">${st.queue} encoding</span>` : ''}<span class="grow"></span>
-      ${can ? `<span class="st-tip">${esc(fmtBytes(can))} of recordings are already clipped</span><button class="small" data-freeup type="button">Free up ${esc(fmtBytes(can))}</button>` : ''}</div>
+      ${can ? `<span class="st-tip wide">${esc(fmtBytes(can))} of recordings are already clipped</span><button class="small" data-freeup type="button" title="Delete the recordings you have already made clips from. The clips stay.">Free up ${esc(fmtBytes(can))}</button>` : ''}</div>
     <div class="capacity" role="img" aria-label="${esc(`Clips ${fmtBytes(cb)}, recordings ${fmtBytes(rb)}, free ${fmtBytes(free)}`)}"><i class="c-clips" style="${w(cb)}"></i><i class="c-recs" style="${w(rb)}"></i><i class="c-other" style="${w(other)}"></i></div>
     <div class="st-legend num"><span><i class="swatch c-clips"></i>Clips <b>${esc(fmtBytes(cb))}</b></span><span><i class="swatch c-recs"></i>Recordings <b>${esc(fmtBytes(rb))}</b></span>
       ${other > total * 0.005 ? `<span><i class="swatch c-other"></i>Other <b>${esc(fmtBytes(other))}</b></span>` : ''}<span><i class="swatch c-free"></i>${u.quota ? 'Free' : 'Free on disk'} <b>${esc(fmtBytes(free))}</b></span></div>`;

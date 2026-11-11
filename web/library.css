@@ -8,8 +8,9 @@
 .st-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 24px; }
 .st-legend { display: flex; flex-wrap: wrap; gap: 4px 22px; }
 .st-legend b { margin-left: 2px; }
-.filter { margin-top: 14px; }
-.filter select { width: auto; min-width: 150px; }
+.filter select { width: auto; min-width: 140px; font-weight: 500; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.narrow { display: none; }
 .freelist { margin: 6px 0 12px; padding-left: 18px; color: var(--ink); }
 
 /* ---------- drop veil (while dragging a file over the page) and the empty state ---------- */
@@ -63,7 +64,7 @@ a.thumb:focus-visible { box-shadow: 0 1px 4px rgba(0,0,0,.45), var(--glow); }
 .rname { font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
 .fails { display: grid; gap: 2px; margin-top: 2px; }
 .fail { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ract { display: flex; align-items: center; gap: 8px; }
+.ract, .rbtns { display: flex; align-items: center; gap: 8px; }
 .rsize { min-width: 62px; text-align: right; font-size: 14px; }
 .retention { margin: 10px 2px 0; font-size: 12px; color: var(--ink3); }
 
@@ -83,12 +84,22 @@ dialog.dlg:has(.delsplit) { width: min(540px, calc(100vw - 28px)); }
 .mi { white-space: nowrap; }
 
 @media (max-width: 760px) {
-  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px 12px; }
-  .st-tip { flex: 1 1 100%; order: 3; }
-  .rec { grid-template-columns: 92px minmax(0, 1fr); gap: 8px 10px; align-items: start; }
-  .ract { grid-column: 1 / -1; flex-wrap: wrap; }
-  .rsize { min-width: 0; text-align: left; }
-  .ract .tag, .ract .badge { margin-right: auto; }
+  .wide { display: none; } .narrow { display: inline; }
+  .storage { padding: 10px 12px; gap: 8px; }
+  .capacity { height: 14px; }
+  .st-legend { gap: 2px 14px; font-size: 12px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px 12px; }
+  .cbody { padding-top: 7px; gap: 1px; }
+  .cmeta, .rmeta { font-size: 12px; }
+  .cact { margin-top: 5px; } .cact button { min-height: 30px; } .cact .primary { flex: 1; }
+  /* a recording: picture, then name / length and size / state, then one row of buttons */
+  .rec { grid-template-columns: 92px minmax(0, 1fr); grid-template-areas: "pic info" "pic state" "btns btns"; gap: 4px 10px; align-items: start; padding: 10px; }
+  .poster { grid-area: pic; } .rinfo { grid-area: info; }
+  .rname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ract { display: contents; }
+  .rsize { display: none; }
+  .rstate { grid-area: state; }
+  .rbtns { grid-area: btns; margin-top: 6px; } .rbtns .btn { flex: 1; }
   .delsplit { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: no-preference) {

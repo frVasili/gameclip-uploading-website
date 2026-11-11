@@ -40,7 +40,6 @@
 
   <button class="primary" id="uploadBtn" type="button"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>Upload</button>
   <section class="panel storage" id="storage" hidden></section>
-  <label class="inline filter" id="ownerFilterWrap" hidden>Show <select id="ownerFilter"></select></label>
 
   <div class="uploads" id="uploads"></div>
 
@@ -51,10 +50,10 @@
   </div>
 
   <div id="lists">
-    <h2 class="section">Clips <span class="count" id="clipCount">0</span><small>what you share</small></h2>
+    <h2 class="section">Clips <span class="count" id="clipCount">0</span><span class="grow"></span><label class="inline filter" id="ownerFilterWrap" hidden><span class="sr">Show</span><select id="ownerFilter" aria-label="Whose clips and recordings to show"></select></label></h2>
     <div class="grid" id="clips"><div class="empty">Loading…</div></div>
 
-    <h2 class="section" id="recordings">Recordings <span class="count" id="recCount">0</span><small>raw uploads · delete any time, your clips stay</small></h2>
+    <h2 class="section" id="recordings">Recordings <span class="count" id="recCount">0</span></h2>
     <div class="recs" id="sources"></div>
     <p class="retention" id="retention" hidden></p>
   </div>
