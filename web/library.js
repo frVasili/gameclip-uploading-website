@@ -31,13 +31,13 @@ async function start() {
 }
 $('#loginForm').onsubmit = async (e) => {
   e.preventDefault();
-  const err = $('#loginError'); err.hidden = true;
+  const err = $('#loginError'); err.textContent = '';
   const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = 'Signing in…';
   try {
     await api('/api/login', { method: 'POST', body: { name: $('#name').value, password: $('#password').value } });
     localStorage.setItem('clips-name', $('#name').value.trim());
     location.reload();
-  } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; btn.textContent = 'Sign in'; play(e.target, 'shake', 450); }
+  } catch (ex) { err.textContent = ex.message; btn.disabled = false; btn.textContent = 'Sign in'; play(e.target, 'shake', 450); }
 };
 
 // ======================= upload =======================
@@ -162,7 +162,7 @@ async function uploadOne(file) {
 // ---- drop / pick ----
 const fileInput = $('#file'), veil = $('#dropveil');
 const pick = () => fileInput.click();
-$('#uploadBtn').onclick = pick; $('#emptyUpload').onclick = pick;
+$('#uploadBtn').onclick = pick; $('#bigEmpty').onclick = pick;
 fileInput.onchange = () => { addFiles(fileInput.files); fileInput.value = ''; };
 const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
 for (const ev of ['dragenter', 'dragover']) document.addEventListener(ev, (e) => { e.preventDefault(); if (me && hasFiles(e)) veil.hidden = false; });
@@ -310,7 +310,7 @@ async function refresh() {
 function clipMenu(btn, c) {
   menu(btn, [
     { label: 'Open page', icon: 'open', run: () => window.open(c.url, '_blank', 'noopener') },
-    ...(!c.sourceGone ? [{ label: 'Edit', icon: 'edit', run: () => { location.href = `/edit/${c.sourceId}?clip=${c.id}`; } }] : []),
+    ...(!c.sourceGone ? [{ label: 'Edit', icon: 'scissors', run: () => { location.href = `/edit/${c.sourceId}?clip=${c.id}`; } }] : []),
     { label: 'Rename', icon: 'edit', run: async () => {
       const title = await promptDialog('Rename clip', { label: 'Title', value: c.title });
       if (title === null || !title.trim() || title.trim() === c.title) return;

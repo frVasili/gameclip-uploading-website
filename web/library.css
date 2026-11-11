@@ -1,7 +1,6 @@
 /* Home page: sign-in, storage, uploads, clips, recordings. Builds on app.css (the Aqua look). */
 
 /* ---------- sign-in ---------- */
-.login .err { margin-top: 10px; color: var(--red); font-weight: 600; }
 
 /* ---------- storage: an iTunes-style capacity bar ---------- */
 .storage { display: grid; gap: 10px; }
@@ -25,9 +24,9 @@
 .bigdrop strong { font-size: 20px; }
 
 /* ---------- uploads in progress ---------- */
-.uploads { display: grid; gap: 8px; margin-top: 14px; }
+.uploads { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 14px; }
 .uploads:empty { display: none; }
-.upload { padding: 10px 14px; border-radius: var(--r); background: var(--glass); border: 1px solid var(--glass-line); box-shadow: var(--hi); display: grid; gap: 7px; }
+.upload { padding: 10px 14px; border-radius: var(--r); background: var(--glass); border: 1px solid var(--glass-line); box-shadow: var(--hi); display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
 .upload .urow { display: flex; align-items: center; gap: 12px; }
 .upload .uname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .upload .ustat { font-size: 12px; color: var(--ink2); }
@@ -66,6 +65,8 @@ a.thumb:focus-visible { box-shadow: 0 1px 4px rgba(0,0,0,.45), var(--glow); }
 .fail { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ract, .rbtns { display: flex; align-items: center; gap: 8px; }
 .rsize { min-width: 62px; text-align: right; font-size: 14px; }
+@media (min-width: 761px) { .rsize { width: 70px; } .rstate { min-width: 200px; text-align: left; } }
+.recs :focus-visible { outline: 2px solid #2a6fd2; outline-offset: 1px; box-shadow: none; }
 .retention { margin: 10px 2px 0; font-size: 12px; color: var(--ink3); }
 
 /* ---------- delete-recording dialog ---------- */
@@ -91,13 +92,13 @@ dialog.dlg:has(.delsplit) { width: min(540px, calc(100vw - 28px)); }
   .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px 12px; }
   .cbody { padding-top: 7px; gap: 1px; }
   .cmeta, .rmeta { font-size: 12px; }
-  .cact { margin-top: 5px; } .cact button { min-height: 30px; } .cact .primary { flex: 1; }
+  .cact { margin-top: 5px; } .cact button { min-height: 34px; } .cact .primary { flex: 1; }
   /* a recording: picture, then name / length and size / state, then one row of buttons */
   .rec { grid-template-columns: 92px minmax(0, 1fr); grid-template-areas: "pic info" "pic state" "btns btns"; gap: 4px 10px; align-items: start; padding: 10px; }
   .poster { grid-area: pic; } .rinfo { grid-area: info; }
   .rname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ract { display: contents; }
-  .rsize { display: none; }
+  .rsize, .rbtns [data-delsrc] { display: none; }
   .rstate { grid-area: state; }
   .rbtns { grid-area: btns; margin-top: 6px; } .rbtns .btn { flex: 1; }
   .delsplit { grid-template-columns: 1fr; }

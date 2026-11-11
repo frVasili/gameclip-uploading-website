@@ -55,6 +55,7 @@ const ICONS = {
   edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4', check: 'M5 12.5l4.5 4.5L19 7.5', x: 'M6 6l12 12M18 6L6 18', download: 'M12 4v12M6 11l6 6 6-6M4 20h16',
   open: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6', scissors: 'M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.1 7.9L20 20M8.1 16.1L20 4',
   image: 'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15.5 9.5h.01', keyboard: 'M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M7 14h10', plus: 'M12 5v14M5 12h14', minus: 'M5 12h14',
+  key: 'M7 15.5a3.5 3.5 0 1 0 0-7a3.5 3.5 0 0 0 0 7zM10.5 12H21M17.5 12v3.5M20.5 12v2.5',
 };
 export const icon = (name) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] || ''}"/></svg>`;
 
@@ -63,6 +64,7 @@ export const icon = (name) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="
 // the primary action is the text typed: { label, value, type, placeholder }.
 export function ask({ title, body = '', actions = [{ label: 'OK', value: true, kind: 'primary' }], input = null }) {
   return new Promise((resolve) => {
+    const opener = document.activeElement;   // focus goes back here when the box closes
     const d = document.createElement('dialog');
     d.className = 'dlg';
     d.innerHTML = `<form method="dialog"><h2>${esc(title)}</h2><div class="body">${body}</div>
@@ -70,7 +72,7 @@ export function ask({ title, body = '', actions = [{ label: 'OK', value: true, k
       <div class="actions">${actions.map((a, i) => `<button type="${a.submit ? 'submit' : 'button'}" class="${a.kind || ''}" data-i="${i}">${esc(a.label)}</button>`).join('')}</div></form>`;
     document.body.append(d);
     // the answer is given at once; the box itself shrinks away for a moment first (see app.css "motion")
-    const done = (v) => { resolve(v); d.classList.add('out'); setTimeout(() => { d.close(); d.remove(); }, calm() ? 0 : 130); };
+    const done = (v) => { resolve(v); d.classList.add('out'); setTimeout(() => { d.close(); d.remove(); if (!document.querySelector('dialog[open]')) restoreFocus(opener); }, calm() ? 0 : 130); };
     const pick = (a) => done(input && a.submit ? d.querySelector('#dlgInput').value : a.value);
     d.querySelector('form').onsubmit = (e) => { e.preventDefault(); const a = actions.find((x) => x.submit); if (a) pick(a); };
     d.querySelector('.actions').onclick = (e) => { const b = e.target.closest('button'); if (b && b.type === 'button') pick(actions[b.dataset.i]); };
@@ -95,8 +97,18 @@ export function play(el, cls, ms = 400) {
   if (!el || calm()) return Promise.resolve();
   return new Promise((res) => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); setTimeout(() => { el.classList.remove(cls); res(); }, ms); });
 }
+// Where focus should return after a menu and the dialog it opened: the element that was focused, else the menu's
+// button (the lists re-render, so it is looked up again by its data attribute).
+let lastMenu = null;
+function restoreFocus(opener) {
+  let t = opener && opener.isConnected && opener !== document.body ? opener : null;
+  if (!t && lastMenu) t = lastMenu.anchor.isConnected ? lastMenu.anchor : lastMenu.sel && document.querySelector(lastMenu.sel);
+  t?.focus?.();
+}
 export function menu(anchor, items) {
   document.querySelector('.menu')?.remove();
+  const [k, v] = Object.entries(anchor.dataset)[0] || [];
+  lastMenu = { anchor, sel: anchor.id ? `#${CSS.escape(anchor.id)}` : k ? `[data-${k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}="${CSS.escape(v)}"]` : '' };
   const m = document.createElement('div');
   m.className = 'menu'; m.setAttribute('role', 'menu');
   m.innerHTML = items.map((it, i) => (it === '-' ? '<hr>' : `<button role="menuitem" class="${it.danger ? 'danger' : ''}" data-i="${i}">${it.icon ? icon(it.icon) : ''}${esc(it.label)}</button>`)).join('');
@@ -109,10 +121,11 @@ export function menu(anchor, items) {
   const key = (e) => {
     const bs = [...m.querySelectorAll('button')], i = bs.indexOf(document.activeElement);
     if (e.key === 'Escape') { close(); anchor.focus(); }
+    else if (e.key === 'Tab') { close(); anchor.focus(); }   // leave the menu: Tab then moves on from its button
     else if (e.key === 'ArrowDown') { e.preventDefault(); bs[(i + 1) % bs.length].focus(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); bs[(i - 1 + bs.length) % bs.length].focus(); }
   };
-  m.onclick = (e) => { const b = e.target.closest('button'); if (!b) return; close(); items[b.dataset.i].run(); };
+  m.onclick = (e) => { const b = e.target.closest('button'); if (!b) return; close(); anchor.focus(); items[b.dataset.i].run(); };
   document.addEventListener('pointerdown', away, true); document.addEventListener('keydown', key, true); window.addEventListener('scroll', close, true);
   m.querySelector('button')?.focus();
 }

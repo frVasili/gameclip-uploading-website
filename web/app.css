@@ -13,7 +13,7 @@
   --r: 6px; --r-s: 5px;
   --shadow: 0 1px 2px rgba(0,0,0,.08); --hi: inset 0 1px 0 #fff;
   --sunk: inset 0 1px 2px rgba(0,0,0,.2);
-  --glow: 0 0 0 3px rgba(60,140,250,.5);                                  /* the focus / selected ring */
+  --glow: 0 0 0 2px #fff, 0 0 0 4px #2a6fd2;                              /* the focus ring: two-tone, visible on blue and white */
   --emboss: 0 1px 0 rgba(255,255,255,.8);
   --sel: linear-gradient(#69a6e9, #2a6fd2);                               /* a selected row */
   --display: Inter, "Lucida Grande", "Helvetica Neue", system-ui, sans-serif;
@@ -68,6 +68,7 @@ button.on { color: #fff; border-color: #56606e; text-shadow: 0 -1px 0 rgba(0,0,0
 button.small, a.btn.small { min-height: 22px; padding: 1px 10px; font-size: 12px; }
 button.big, a.btn.big { min-height: 32px; padding: 4px 18px; font-size: 14px; border-radius: 6px; }
 button.icon { padding: 0; width: 30px; } button.icon.small { width: 24px; }
+button.icon svg.ic { stroke-width: 2.6; color: var(--ink); }
 :focus-visible { outline: none; box-shadow: var(--glow); }
 
 /* ---------- fields ---------- */
@@ -117,7 +118,7 @@ header.top nav { display: none; gap: 6px; }
 body.no-side header.top nav { display: flex; }
 header.top h1 { font-size: 13px; font-weight: 600; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; padding-left: 12px; border-left: 1px solid #b0b0b0; text-shadow: var(--emboss); }
 header.top .right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: none; }
-.status { color: var(--ink3); font-size: 12px; white-space: nowrap; }
+.status { color: var(--ink3); font-size: 12px; white-space: nowrap; transition: opacity .4s; }
 .chip { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; color: var(--ink); text-decoration: none; text-shadow: var(--emboss); }
 .avatar { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; font: 700 10px var(--body); color: #fff; text-shadow: none; background: linear-gradient(#b9c4d3, #8493a8); }
 
@@ -128,7 +129,7 @@ nav.side a { display: flex; align-items: center; gap: 8px; padding: 5px 14px 5px
 nav.side a svg.ic { color: #4f86d6; }
 nav.side a.on { color: #fff; font-weight: 700; text-shadow: 0 1px 0 rgba(0,0,0,.35); background: var(--sel); box-shadow: inset 0 1px 0 #4f8fd8, inset 0 -1px 0 #1f5cb4; }
 nav.side a.on svg.ic { color: #fff; }
-nav.side a:focus-visible { box-shadow: inset var(--glow); }
+nav.side a:focus-visible { box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px #2a6fd2; }
 nav.side em { margin-left: auto; font-style: normal; font-size: 11px; font-weight: 700; color: #fff; background: #8d9bb0; border-radius: 99px; padding: 0 7px; text-shadow: none; }
 nav.side a.on em { background: #fff; color: #2a6fd2; }
 nav.side em:empty { display: none; }
@@ -146,7 +147,10 @@ nav.side em:empty { display: none; }
   nav.side { padding-bottom: env(safe-area-inset-bottom); height: calc(56px + env(safe-area-inset-bottom)); }
   body { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
   button, a.btn { min-height: 34px; } button.small, a.btn.small { min-height: 28px; } button.icon { width: 36px; }
-  input[type=text], input[type=number], input[type=password], select { min-height: 34px; font-size: 16px; }
+  input[type=text], input[type=number], input[type=password], select, textarea { min-height: 34px; font-size: 16px; }
+  button.big, a.btn.big { min-height: 38px; }
+  header.top button, header.top a.btn { min-height: 34px; } header.top .avatar { width: 30px; height: 30px; font-size: 11px; }
+  .status { display: none; }
 }
 
 /* status pills with a little lamp */
@@ -172,8 +176,8 @@ nav.side em:empty { display: none; }
 .blocks.full i.on { background: linear-gradient(#f59a92, #d4362b); }
 
 /* notices: the dark see-through bezel */
-#toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
-#toast > div { padding: 9px 18px; border-radius: 10px; max-width: 90vw; font-weight: 600; color: #fff; background: rgba(38,38,40,.88); box-shadow: 0 6px 20px rgba(0,0,0,.3); }
+#toast { position: fixed; bottom: 26px; left: 0; right: 0; transform: none; z-index: 200; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+#toast > div { padding: 9px 18px; border-radius: 10px; width: max-content; max-width: 90vw; font-weight: 600; color: #fff; background: rgba(38,38,40,.88); box-shadow: 0 6px 20px rgba(0,0,0,.3); }
 #toast > div.bad { background: rgba(150,28,22,.94); }
 @media (max-width: 760px) { #toast { bottom: 70px; } }
 
@@ -189,6 +193,7 @@ dialog.dlg .actions { display: flex; gap: 10px; justify-content: flex-end; margi
 .menu { position: fixed; z-index: 150; min-width: 170px; padding: 4px 0; border-radius: 6px; border: 1px solid #b0b0b0; background: rgba(255,255,255,.98); box-shadow: 0 8px 24px rgba(0,0,0,.25); }
 .menu button { display: flex; width: 100%; justify-content: flex-start; min-height: 24px; padding: 2px 16px; background: none; border: 0; box-shadow: none; border-radius: 0; font-weight: 400; }
 .menu button:hover, .menu button:focus-visible { background: var(--sel); color: #fff; box-shadow: none; }
+.menu button:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
 .menu button.danger { color: var(--red); } .menu button.danger:hover, .menu button.danger:focus-visible { color: #fff; }
 .menu hr { border: 0; border-top: 1px solid #dcdcdc; margin: 4px 0; }
 @media (max-width: 760px) { .menu button { min-height: 38px; } }
@@ -205,7 +210,9 @@ dialog.dlg .actions { display: flex; gap: 10px; justify-content: flex-end; margi
 .login form { text-align: left; padding: 18px; }
 .login form label:first-child { margin-top: 0; }
 .login form button { width: 100%; margin-top: 16px; }
-.login .foot { margin-top: 14px; color: var(--ink3); font-size: 12px; }
+.login .foot { margin-top: 14px; }
+.login .err { margin-top: 10px; min-height: 20px; color: var(--red); font-weight: 600; }
+.login .err:empty { visibility: hidden; }
 
 /* ---------- motion: the springy, physical moves of old iOS (off when the system asks for reduced motion) ---------- */
 @media (prefers-reduced-motion: no-preference) {

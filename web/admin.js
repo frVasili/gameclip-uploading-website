@@ -54,7 +54,7 @@ async function loadInvites() {
   $('#inviteCount').textContent = d.invites.length;
   $('#invites').innerHTML = d.invites.map((i) => `<tr><td class="inote">${i.note ? esc(i.note) : '<span class="muted">No note</span>'}</td>
     <td class="num">${esc(fmtBytes(i.quota))}</td><td class="num nowrap">expires ${esc(new Date(i.expires).toLocaleDateString())}</td>
-    <td class="r"><button class="small ghost danger" data-revoke="${i.id}" type="button">Revoke</button></td></tr>`).join('');
+    <td class="r"><button class="small danger" data-revoke="${i.id}" type="button">Revoke</button></td></tr>`).join('');
 }
 
 function renderRows(rows) {
@@ -86,28 +86,28 @@ async function personAction(fn) { try { await fn(); } catch (ex) { toast(ex.mess
 
 function userMenu(btn, key) {
   const u = people.get(key); if (!u) return;
-  const items = [{ label: 'Rename', run: () => personAction(() => rename(key, u.name)) }];
+  const items = [{ label: 'Rename', icon: 'edit', run: () => personAction(() => rename(key, u.name)) }];
   if (!u.self) {
     items.push(
-      { label: 'New password', run: () => personAction(async () => {
+      { label: 'New password', icon: 'key', run: () => personAction(async () => {
         if (!(await confirmDialog(`New password for ${u.name}?`, 'The old one stops working and they are signed out.', { ok: 'New password', danger: true }))) return;
         const r = await api(`/api/users/${u.id}`, { method: 'PATCH', body: { resetPassword: true } });
         await load();
         const row = document.querySelector(`[data-secret="${u.id}"]`);
         row.hidden = false; row.firstElementChild.innerHTML = secretBox(r.user.name, r.password);
       }) },
-      { label: 'Storage limit', run: () => personAction(async () => {
+      { label: 'Storage limit', icon: 'tape', run: () => personAction(async () => {
         const v = await promptDialog('Storage limit', { label: 'Storage limit (GB)', type: 'number', value: String(+(u.quota / 1e9).toFixed(2)), attrs: 'min="0" step="1"' });
         if (v === null) return;
         if (v.trim() === '' || !(Number(v) >= 0)) return toast('Enter a number of GB', true);
         await api(`/api/users/${u.id}`, { method: 'PATCH', body: { quotaGB: Number(v) } });
         load();
       }) },
-      { label: u.disabled ? 'Enable' : 'Disable', run: () => personAction(async () => {
+      { label: u.disabled ? 'Enable' : 'Disable', icon: u.disabled ? 'check' : 'x', run: () => personAction(async () => {
         await api(`/api/users/${u.id}`, { method: 'PATCH', body: { disabled: !u.disabled } }); load();
       }) },
       '-',
-      { label: 'Delete', danger: true, run: () => personAction(async () => {
+      { label: 'Delete', icon: 'trash', danger: true, run: () => personAction(async () => {
         const how = await ask({ title: `Delete ${u.name}?`, body: 'Their account stops working.', actions: [
           { label: 'Cancel', value: null },
           { label: 'Delete account, keep clips', value: 'keep' },

@@ -28,11 +28,26 @@ export function logRequest(req, res, t0) {
 
 const fmtDuration = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
+// Shared by the 404 and the watch page: the Aqua toolbar and push button.
+const PAGE_CSS = `@font-face{font-family:Inter;font-weight:100 900;font-display:swap;src:url(/static/inter.woff2) format("woff2")}
+  html,body{margin:0;background:#fff;color:#1d1d1f;font:14px/1.45 Inter,"Lucida Grande","Helvetica Neue",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh}
+  header{display:flex;align-items:center;height:52px;padding:0 18px;background:linear-gradient(#ececec,#d2d2d2);border-bottom:1px solid #8e8e8e;box-shadow:inset 0 1px 0 #fafafa}
+  .bar{display:inline-flex;align-items:center;gap:9px;color:#333;text-decoration:none;font-weight:700;font-size:16px;text-shadow:0 1px 0 rgba(255,255,255,.8)}
+  .bar img{width:26px;height:26px}
+  a.btn{display:inline-flex;align-items:center;justify-content:center;min-height:26px;padding:2px 13px;border-radius:5px;border:1px solid #a4a4a4;border-bottom-color:#8b8b8b;background:linear-gradient(#fff,#ededed);box-shadow:0 1px 0 rgba(255,255,255,.7);color:#1d1d1f;font-weight:500;font-size:13px;text-decoration:none;white-space:nowrap}
+  a.btn:hover{background:linear-gradient(#fff,#f6f6f6)} a.btn:active{background:linear-gradient(#d9d9d9,#e9e9e9);box-shadow:inset 0 1px 2px rgba(0,0,0,.2)}
+  a.btn:focus-visible{outline:none;box-shadow:0 0 0 2px #fff,0 0 0 4px #2a6fd2}`;
+const pageHeader = () => `<header><a class="bar" href="/home"><img src="/static/favicon.svg" alt="">${esc(config.siteName)}</a></header>`;
+
 export const notFoundPage = (msg = 'Nothing here.') => `<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Not found</title>
-<style>@font-face{font-family:Inter;font-weight:100 900;font-display:swap;src:url(/static/inter.woff2) format("woff2")}
-body{background:#fff;color:#55585e;font:14px/1.45 Inter,"Lucida Grande","Helvetica Neue",system-ui,sans-serif;display:grid;place-items:center;height:90vh;margin:0;padding:0 16px;text-align:center}a{color:#1a6fe0}</style>
-<p>${esc(msg)} <a href="/home">Go to ${esc(config.siteName)}</a></p>`;
+<link rel="icon" href="/static/favicon.svg">
+<style>${PAGE_CSS}
+  main{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;min-height:calc(100vh - 53px);padding:0 16px 60px;box-sizing:border-box;text-align:center;font-size:16px;font-weight:600}
+  main p{margin:0}</style>
+${pageHeader()}
+<main><p>${esc(msg)}</p><a class="btn" href="/home">Go to ${esc(config.siteName)}</a></main>`;
 
 function watchPage(req, c) {
   const base = publicBase(req);
@@ -62,23 +77,19 @@ ${c.hasThumb ? `<meta property="og:image" content="${jpg}">
 <meta property="og:video:height" content="${c.height}">
 <link rel="icon" href="/static/favicon.svg">
 <style>
-  @font-face{font-family:Inter;font-weight:100 900;font-display:swap;src:url(/static/inter.woff2) format("woff2")}
-  html,body{margin:0;background:#fff;color:#1d1d1f;font:14px/1.45 Inter,"Lucida Grande","Helvetica Neue",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-  body{min-height:100vh}
-  header{display:flex;align-items:center;height:52px;padding:0 18px;background:linear-gradient(#ececec,#d2d2d2);border-bottom:1px solid #8e8e8e;box-shadow:inset 0 1px 0 #fafafa}
+  ${PAGE_CSS}
   main{max-width:min(1280px,100vw);margin:0 auto;padding:22px 20px 40px;box-sizing:border-box}
-  .bar{display:inline-flex;align-items:center;gap:9px;color:#333;text-decoration:none;font-weight:700;font-size:16px;text-shadow:0 1px 0 rgba(255,255,255,.8)}
-  .bar img{width:26px;height:26px}
   video{width:100%;max-height:78vh;background:#000;display:block;border:1px solid #7d7d7d;box-sizing:border-box;box-shadow:0 2px 10px rgba(0,0,0,.25)}
   h1{font-weight:700;font-size:20px;margin:16px 0 4px;color:#1d1d1f;overflow-wrap:anywhere}
-  .meta{color:#77787b;font-size:13px} .meta a{color:#1a6fe0}
+  .meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;color:#77787b;font-size:13px}
+  a.btn.small{min-height:22px;padding:1px 10px;font-size:12px}
 </style>
 </head><body>
-<header><a class="bar" href="/home"><img src="/static/favicon.svg" alt="">${esc(config.siteName)}</a></header>
+${pageHeader()}
 <main>
 <video src="${mp4}" ${c.hasThumb ? `poster="${jpg}"` : ''} controls playsinline preload="metadata"></video>
 <h1>${title}</h1>
-<div class="meta">by ${by} · ${desc} · <a href="${mp4}" download>download</a></div>
+<div class="meta"><span>by ${by} · ${desc}</span><a class="btn small" href="${mp4}" download>download</a></div>
 </main></body></html>`;
 }
 

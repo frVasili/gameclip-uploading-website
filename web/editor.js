@@ -11,6 +11,7 @@ let source, info, edit, presets = {}, gpuDefault = false;
 let peaks = [];                 // per track: array of 0-255, 100 per second
 let view = { t0: 0, t1: 1 };    // visible timeline range (seconds)
 let dirtyWave = true;           // waveform cache needs a redraw
+let rulerLabels = [];           // { x, text } of the ruler's time labels (drawn over the cache so they can dodge the trim handles)
 let dirty = true;               // the overlay (handles, playhead, ...) needs a redraw
 let lanes = [];                 // indexes of the audio tracks shown as lanes
 let showAll = false;            // the user expanded the hidden copies / silent tracks
@@ -162,11 +163,12 @@ function drawWaves() {   // cached: only redrawn when the view, the tracks or th
   c.fillStyle = '#9a9a9a'; c.fillRect(0, RULER - 1, W, 1);
   const span = view.t1 - view.t0;
   const step = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800].find((s) => (s / span) * W >= 70) || 3600;
-  c.font = '500 11px Inter, sans-serif'; c.fillStyle = '#4a4d52'; c.strokeStyle = 'rgba(0,0,0,.09)'; c.lineWidth = 1; c.textBaseline = 'middle';
+  c.strokeStyle = 'rgba(0,0,0,.09)'; c.lineWidth = 1;
+  rulerLabels = [];   // the labels are drawn in draw(), where the trim handles are known
   for (let t = Math.ceil(view.t0 / step) * step; t <= view.t1; t += step) {
     const x = Math.round(xOf(t)) + 0.5;
     c.beginPath(); c.moveTo(x, RULER - 6); c.lineTo(x, bottom); c.stroke();
-    c.fillText(fmtTime(t, step < 1 ? 1 : 0), x + 4, RULER / 2);
+    rulerLabels.push({ x, text: fmtTime(t, step < 1 ? 1 : 0) });
   }
   // lane separators and waveforms
   lanes.forEach((_, k) => { c.fillStyle = '#c9ced6'; c.fillRect(0, RULER + (k + 1) * lh - 1, W, 1); });
@@ -201,6 +203,13 @@ function draw() {
   c.drawImage(waveCanvas, 0, 0);
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   const xs = xOf(edit.start), xe = xOf(edit.end), bottom = H - MARK;
+  // ruler labels, except where a trim handle's grip sits or where they would run off the right edge
+  c.font = '500 11px Inter, sans-serif'; c.fillStyle = '#4a4d52'; c.textBaseline = 'middle';
+  for (const l of rulerLabels) {
+    const w = c.measureText(l.text).width;
+    if (l.x + 4 + w > W - 4 || [xs, xe].some((h) => Math.abs(l.x - h) < 26 || (l.x + 4 < h + 12 && l.x + 4 + w > h - 12))) continue;
+    c.fillText(l.text, l.x + 4, RULER / 2);
+  }
   // dim what gets cut
   c.fillStyle = 'rgba(150,155,165,.55)';
   if (xs > 0) c.fillRect(0, RULER, Math.min(W, xs), bottom - RULER);
@@ -475,10 +484,16 @@ function changed() {
   save();
 }
 
+let savedTimer = 0;
+function showSaved(text, fade) {   // the status text in the toolbar; "saved" fades away after ~2 s
+  const el = $('#saved'); clearTimeout(savedTimer);
+  el.textContent = text; el.style.opacity = '1';
+  if (fade) savedTimer = setTimeout(() => { el.style.opacity = '0'; savedTimer = setTimeout(() => { el.textContent = ''; }, 450); }, 2000);
+}
 const save = debounce(async () => {
-  $('#saved').textContent = 'saving…';
-  try { await api(base, { method: 'PATCH', body: { edit } }); $('#saved').textContent = 'settings saved'; }
-  catch (e) { $('#saved').textContent = `not saved: ${e.message}`; }
+  showSaved('saving…');
+  try { await api(base, { method: 'PATCH', body: { edit } }); showSaved('settings saved', true); }
+  catch (e) { showSaved(`not saved: ${e.message}`); toast(`Not saved: ${e.message}`, true); }
 }, 800);
 
 let planSeq = 0;
@@ -593,6 +608,7 @@ async function load() {
     if (c && c.edit && typeof c.edit === 'object' && c.sourceId === sid) { clipEdit = c.edit; clipTitle = c.title || ''; }
   }
   edit = normalize(clipEdit || source.edit);
+  edit.title = clipEdit ? clipTitle || edit.title : source.name.replace(/\.[^.]+$/, '');   // a new clip starts from the recording's name, not the last clip's title
   if (!clipEdit && !source.edit) info.audio.forEach((a, i) => { if (hideable(i)) edit.tracks[i].muted = true; });   // new recording: start without the copies
   renderSizes();
   setupAudioElements();

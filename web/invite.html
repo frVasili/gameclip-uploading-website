@@ -15,7 +15,7 @@
   <div class="login">
     <img class="logo" src="/static/favicon.svg" alt="">
     <h1 id="title" style="margin-bottom:10px">Clips</h1>
-    <p id="intro" style="margin:0 0 20px;color:var(--ink2)">Checking your invite…</p>
+    <p id="intro" style="margin:0 0 20px">Checking your invite…</p>
     <form class="panel" id="form" hidden>
       <h2>Create your account</h2>
       <label for="name">Name</label>
@@ -24,10 +24,10 @@
       <input type="password" id="pw" autocomplete="new-password" minlength="8" maxlength="200" placeholder="At least 8 characters" required>
       <label for="pw2">Repeat password</label>
       <input type="password" id="pw2" autocomplete="new-password" minlength="8" maxlength="200" required>
-      <div id="error" role="alert" style="margin-top:10px;color:var(--red);font-weight:600" hidden></div>
+      <div class="err" id="error" role="alert"></div>
       <button class="primary big" type="submit" style="margin-top:20px">Create my account</button>
     </form>
-    <p class="foot"><a href="/home">Already have an account? Sign in</a></p>
+    <p class="foot"><a class="btn small" href="/home">Already have an account? Sign in</a></p>
   </div>
 </main>
 </body>

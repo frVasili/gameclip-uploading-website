@@ -19,12 +19,12 @@ history.replaceState(null, '', '/invite');   // keep the token out of the addres
 
 $('#form').onsubmit = async (e) => {
   e.preventDefault();
-  const err = $('#error'); err.hidden = true;
-  if ($('#pw').value !== $('#pw2').value) { err.textContent = 'The two passwords are different.'; err.hidden = false; return; }
+  const err = $('#error'); err.textContent = '';
+  if ($('#pw').value !== $('#pw2').value) { err.textContent = 'The two passwords are different.'; return; }
   const btn = e.target.querySelector('button'); btn.disabled = true;
   try {
     await api('/api/invite/accept', { method: 'POST', body: { token, name: $('#name').value, password: $('#pw').value } });
     localStorage.setItem('clips-name', $('#name').value.trim());
     location.href = '/home';
-  } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
+  } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
 };

@@ -26,7 +26,7 @@ table.users tr[data-secret] td { padding-top: 0; }
 .store .blocks { width: 110px; }
 
 /* add / invite panels */
-.twin { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 24px; align-items: start; }
+.twin { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 24px; align-items: stretch; }
 .twin h2 { display: flex; align-items: center; gap: 10px; }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .fields .wide { grid-column: 1 / -1; }
@@ -66,6 +66,8 @@ table.users .secret { margin: 0 0 4px; max-width: 520px; }
   .store .blocks { width: 70px; }
   .tiles { grid-template-columns: 1fr 1fr; gap: 8px; }
   .tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .mestats { display: grid; grid-template-columns: 1.8fr 1fr 1fr; gap: 10px; align-items: start; }
+  .mestat .store { flex-direction: column; align-items: flex-start; gap: 5px; min-height: 0; } .mestat .store .blocks { width: 100%; }
   table.users td, table.users th { padding-left: 8px; padding-right: 8px; }
   table.users td.r { padding-left: 0; }
   .secret .sval { flex-wrap: wrap; }
