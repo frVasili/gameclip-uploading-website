@@ -54,7 +54,10 @@
   </div>
 
   <div id="lists">
-    <h2 class="section">Clips <span class="count" id="clipCount">0</span></h2>
+    <h2 class="section">Clips <span class="count" id="clipCount">0</span>
+      <span class="grow"></span>
+      <span class="seg" id="viewSeg" role="group" aria-label="View"><button type="button" data-view="shelf">Shelf</button><button type="button" data-view="grid">Grid</button></span></h2>
+    <section class="shelf" id="shelf" hidden></section>
     <div class="grid" id="clips"><div class="empty">Loading…</div></div>
 
     <h2 class="section">Recordings <span class="count" id="recCount">0</span></h2>

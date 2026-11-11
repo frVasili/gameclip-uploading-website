@@ -36,6 +36,7 @@ export function renderHeader(user, siteName, { page = '', title = '' } = {}) {
 // Small line icons (inline SVG, 24x24 grid).
 const ICONS = {
   upload: 'M12 16V4M6 10l6-6 6 6M4 20h16', link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  prev: 'M15 5l-7 7 7 7', next: 'M9 5l7 7-7 7',
   more: 'M5 12h.01M12 12h.01M19 12h.01', play: 'M7 4.5v15l12-7.5z', pause: 'M8 5v14M16 5v14', trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
   edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4', check: 'M5 12.5l4.5 4.5L19 7.5', x: 'M6 6l12 12M18 6L6 18', download: 'M12 4v12M6 11l6 6 6-6M4 20h16',
   open: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6', scissors: 'M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.1 7.9L20 20M8.1 16.1L20 4',
