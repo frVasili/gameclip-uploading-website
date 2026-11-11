@@ -80,7 +80,7 @@ function cookieToken(req) {
   const m = new RegExp(`(?:^|;\\s*)${COOKIE}=([A-Za-z0-9_-]{43})`).exec(req.headers.cookie || '');
   return m ? m[1] : null;
 }
-function isHttps(req) {
+export function isHttps(req) {
   if (config.secureCookies === 'always') return true;
   if (config.secureCookies === 'never') return false;
   if (req.socket.encrypted) return true;

@@ -9,7 +9,7 @@ import * as store from './store.js';
 import * as auth from './auth.js';
 import * as uploads from './uploads.js';
 import { json, sendFile, readBody } from './http.js';
-import { probe, prepare, convertPreview, render, plan, thumbnail, PRESETS, LEVELING, LOUDNESS, measureTrack, makeLeveledPreview, gpu, detectGpu, maxOf } from './media.js';
+import { probe, prepare, convertPreview, render, plan, thumbnail, PRESETS, LEVELING, LOUDNESS, measureTrack, makeLeveledPreview, makePoster, gpu, detectGpu, maxOf } from './media.js';
 
 let FFMPEG_VERSION = 'unknown';
 try { FFMPEG_VERSION = execFileSync(process.env.FFMPEG || 'ffmpeg', ['-version']).toString().split('\n')[0].replace(/ Copyright.*/, ''); } catch { /* unknown */ }
@@ -19,6 +19,23 @@ detectGpu().then((g) => console.log(g.available ? `GPU encoding available (${g.d
 const jobs = new Map();
 const queue = [];
 let running = null;
+let sideFfmpegRunning = 0;
+const sideFfmpegQueue = [];
+const posterFailures = new Set();
+
+// Previews and analysis deliberately do not hold up exports, but still need a small shared limit.
+function sideFfmpeg(fn) {
+  return new Promise((resolve, reject) => {
+    const run = () => {
+      sideFfmpegRunning++;
+      Promise.resolve().then(fn).then(resolve, reject).finally(() => {
+        sideFfmpegRunning--;
+        sideFfmpegQueue.shift()?.();
+      });
+    };
+    if (sideFfmpegRunning < 2) run(); else sideFfmpegQueue.push(run);
+  });
+}
 
 function enqueue(job) {
   Object.assign(job, { id: store.randomId(10), state: 'queued', progress: 0, created: Date.now() });
@@ -183,7 +200,7 @@ function exportJob(s, edit) {
       if (hasThumb) fs.renameSync(tmpJpg, store.clipFile(clipId, 'jpg'));
       store.saveClip({ id: clipId, owner: m.owner, title: edit.title || m.name.replace(/\.[^.]+$/, ''), created: Date.now(),
         width: r.plan.w, height: r.plan.h, fps: r.plan.fps, duration: r.plan.dur, size: r.bytes, hasThumb, sourceId: s.id,
-        preset: r.plan.preset, gpu: r.gpu });
+        preset: r.plan.preset, gpu: r.gpu, edit });
       setState({ state: 'done', size: r.bytes });
     },
     onError: (e) => {
@@ -252,7 +269,7 @@ export async function handleApi(req, res, url, user) {
 
   // ---- uploads (chunked) ----
   if (p === '/api/uploads' && m === 'POST') {
-    try { const u = uploads.startUpload(user, await body(req)); return json(res, 201, { id: u.id, chunkSize: u.chunk, received: 0, size: u.size, pieces: [] }); }
+    try { const u = uploads.startUpload(user, await body(req)); return json(res, 201, { id: u.id, chunkSize: u.chunk, received: u.received, size: u.size, pieces: u.pieces }); }
     catch (e) { return sendErr(res, e); }
   }
   if ((r = /^\/api\/uploads\/([A-Za-z0-9]{20})(\/complete)?$/.exec(p))) {
@@ -339,7 +356,7 @@ export async function handleApi(req, res, url, user) {
       const b = await body(req), a = s.info.audio[Number(b.n)];
       if (!a || !(b.level in LEVELING)) return json(res, 400, { error: 'bad track or leveling' });
       const name = `audio-${a.n}-${b.level}.m4a`, out = path.join(store.sourceDir(s.id), name);
-      try { await once(`${s.id}/${name}`, () => (fs.existsSync(out) ? null : makeLeveledPreview(srcFile, a.n, b.level, out))); }
+      try { await once(`${s.id}/${name}`, () => (fs.existsSync(out) ? null : sideFfmpeg(() => makeLeveledPreview(srcFile, a.n, b.level, out)))); }
       catch (e) { return json(res, 500, { error: userError(e.message) }); }
       return json(res, 200, { url: `/api/sources/${s.id}/${name}`, peaks: `/api/sources/${s.id}/peaks-${a.n}-${b.level}.json` });
     }
@@ -352,7 +369,7 @@ export async function handleApi(req, res, url, user) {
         for (const t of want) {
           const level = t.level in LEVELING ? t.level : 'off', key = `${Number(t.n)}:${level}`;
           if (!(key in cache)) {
-            const v = await once(`${s.id}/loud/${key}`, () => measureTrack(srcFile, Number(t.n), level));
+            const v = await once(`${s.id}/loud/${key}`, () => sideFfmpeg(() => measureTrack(srcFile, Number(t.n), level)));
             cache[key] = Number.isFinite(v) ? v : null;
           }
           out.push({ n: Number(t.n), level, lufs: cache[key] });
@@ -369,11 +386,25 @@ export async function handleApi(req, res, url, user) {
       }
       return json(res, 200, sourceView(req, s));
     }
+    if (sub === 'poster.jpg' && m === 'GET') {
+      if (s.status !== 'ready' || posterFailures.has(s.id)) return json(res, 404, { error: 'no poster available' });
+      const out = path.join(store.sourceDir(s.id), 'poster.jpg');
+      try {
+        await once(`${s.id}/poster`, () => (fs.existsSync(out) ? null : sideFfmpeg(() => makePoster(srcFile, Math.min(s.info.duration * 0.1, 5), out))));
+      } catch (e) {
+        posterFailures.add(s.id); fs.rmSync(out, { force: true });
+        return json(res, 404, { error: 'no poster available' });
+      }
+      return sendFile(req, res, out, { 'Cache-Control': 'private, max-age=86400' });
+    }
     if (sub === 'plan' && m === 'POST') {
       try { return json(res, 200, plan(s.info, cleanEdit(s.info, await body(req)))); } catch (e) { return sendErr(res, e); }
     }
     if (sub === 'export' && m === 'POST') {
       if (s.status !== 'ready') return json(res, 409, { error: 'this upload is still being prepared' });
+      if (!user.admin && (store.usageByOwner(true)[user.id] || 0) >= user.quota) return json(res, 413, { error: 'you are at your storage limit; delete old recordings or clips, or ask the admin for more space' });
+      const free = store.diskFree();
+      if (free !== null && free < config.minFreeBytes) return json(res, 507, { error: 'not enough disk space on the server' });
       if (!user.admin && activeJobsOf(user.id) >= config.maxJobsPerUser) return json(res, 429, { error: `you already have ${config.maxJobsPerUser} exports waiting; wait for one to finish` });
       let edit;
       try { edit = cleanEdit(s.info, await body(req)); plan(s.info, edit); } catch (e) { return sendErr(res, e); }

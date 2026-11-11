@@ -7,6 +7,7 @@
 <title>Clips</title>
 <link rel="icon" href="/static/favicon.svg">
 <link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/library.css">
 <script type="module" src="/static/library.js"></script>
 </head>
 <body>
@@ -16,39 +17,50 @@
   <div class="login">
     <img class="logo" src="/static/favicon.svg" alt="">
     <h1 id="loginTitle">Clips</h1>
-    <p>Trim your game clips, fix the audio and get a link that plays right in Discord.</p>
     <form class="panel" id="loginForm">
       <label for="name">Name</label>
       <input type="text" id="name" autocomplete="username" maxlength="40" required autofocus>
-      <label for="password" style="margin-top:10px;display:block">Password</label>
+      <label for="password">Password</label>
       <input type="password" id="password" autocomplete="current-password" required>
-      <div class="small bad" id="loginError" style="margin-top:8px" hidden></div>
-      <button class="primary" type="submit">Sign in</button>
+      <div class="err" id="loginError" role="alert" hidden></div>
+      <button class="primary big" type="submit">Sign in</button>
     </form>
-    <p class="small" style="margin-top:16px">No account? Ask whoever runs this site for an invite link.</p>
+    <p class="foot">No account? Ask for an invite link.</p>
   </div>
 </main>
 
 <main id="app" hidden>
-  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Upload a video">
-    <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg></div>
-    <div><strong>Drop a recording here</strong>
-      <span class="muted">or click to choose · MP4, MKV, MOV, WebM… · several audio tracks are fine · big files resume if the connection drops</span></div>
-    <input type="file" id="file" accept="video/*,.mkv,.flv,.ts,.mts,.m2ts" multiple hidden>
+  <input type="file" id="file" accept="video/*,.mkv,.flv,.ts,.mts,.m2ts" multiple hidden>
+  <div class="dropveil" id="dropveil" hidden>
+    <div class="dropveil-in">
+      <span class="orb"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg></span>
+      <strong>Drop to upload</strong>
+    </div>
   </div>
+
   <div class="toolbar">
-    <div class="usage" id="usage" hidden><span id="usageText"></span><div class="meter" id="usageMeter"><div></div></div></div>
+    <button class="primary big" id="uploadBtn" type="button"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>Upload</button>
+    <div id="usage" class="usage"></div>
     <span class="grow"></span>
     <label class="inline" id="ownerFilterWrap" hidden>Show <select id="ownerFilter" style="width:auto"></select></label>
   </div>
+
   <div class="uploads" id="uploads"></div>
 
-  <h2 class="section">Clips <span class="count" id="clipCount">0</span></h2>
-  <div class="grid" id="clips"><div class="empty">Loading…</div></div>
+  <div class="bigdrop" id="bigEmpty" hidden>
+    <span class="orb"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg></span>
+    <strong>Drop a recording here</strong>
+    <button class="primary big" id="emptyUpload" type="button">Upload</button>
+  </div>
 
-  <h2 class="section">Recordings <span class="count" id="recCount">0</span></h2>
-  <div id="sources"></div>
-  <p class="hint" id="retention" hidden></p>
+  <div id="lists">
+    <h2 class="section">Clips <span class="count" id="clipCount">0</span></h2>
+    <div class="grid" id="clips"><div class="empty">Loading…</div></div>
+
+    <h2 class="section">Recordings <span class="count" id="recCount">0</span></h2>
+    <div class="recs" id="sources"></div>
+    <p class="retention" id="retention" hidden></p>
+  </div>
 </main>
 </body>
 </html>

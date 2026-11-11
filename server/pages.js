@@ -30,7 +30,7 @@ const fmtDuration = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).p
 
 export const notFoundPage = (msg = 'Nothing here.') => `<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Not found</title>
-<style>body{background:#0b0b10;color:#9a9ab0;font:16px system-ui,sans-serif;display:grid;place-items:center;height:90vh;margin:0}a{color:#a78bfa}</style>
+<style>body{background:radial-gradient(900px 520px at 50% -160px,rgba(40,130,255,.35),transparent 70%) #050912;color:#b4c4d8;font:16px "Segoe UI",system-ui,sans-serif;display:grid;place-items:center;height:90vh;margin:0}a{color:#9be4ff}</style>
 <p>${esc(msg)} <a href="/home">Go to ${esc(config.siteName)}</a></p>`;
 
 function watchPage(req, c) {
@@ -44,7 +44,7 @@ function watchPage(req, c) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>${title} · ${esc(config.siteName)}</title>
-<meta name="theme-color" content="#8b5cf6">
+<meta name="theme-color" content="#2a97ff">
 <meta property="og:site_name" content="${esc(config.siteName)}">
 <meta property="og:title" content="${title}">
 <meta property="og:description" content="${desc}">
@@ -61,14 +61,15 @@ ${c.hasThumb ? `<meta property="og:image" content="${jpg}">
 <meta property="og:video:height" content="${c.height}">
 <link rel="icon" href="/static/favicon.svg">
 <style>
-  html,body{margin:0;background:#0b0b10;color:#d4d4e0;font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
-  body{background:radial-gradient(1200px 600px at 50% -200px,#2a1d52 0%,transparent 70%) #0b0b10;min-height:100vh}
-  main{max-width:min(1280px,100vw);margin:0 auto;padding:20px;box-sizing:border-box}
-  .bar{display:flex;align-items:center;gap:10px;margin-bottom:16px;color:#fff;text-decoration:none;font-weight:700}
-  .bar img{width:26px;height:26px}
-  video{width:100%;max-height:78vh;background:#000;border-radius:12px;display:block;box-shadow:0 20px 60px #0009}
-  h1{font-size:20px;margin:16px 0 4px;color:#fff;overflow-wrap:anywhere}
-  .meta{color:#8a8aa0;font-size:13px} .meta a{color:#a78bfa}
+  @font-face{font-family:"Chakra Petch";font-weight:600;font-display:swap;src:url(/static/chakra-petch-600.woff2) format("woff2")}
+  html,body{margin:0;background:#050912;color:#b4c4d8;font:15px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
+  body{min-height:100vh;background:radial-gradient(900px 520px at 12% -160px,rgba(40,130,255,.38),transparent 70%),radial-gradient(760px 460px at 92% -120px,rgba(0,210,190,.2),transparent 70%),linear-gradient(180deg,#071326,#050912 55%,#04060d) fixed}
+  main{max-width:min(1280px,100vw);margin:0 auto;padding:18px 20px 40px;box-sizing:border-box}
+  .bar{display:inline-flex;align-items:center;gap:9px;margin-bottom:14px;color:#eef6ff;text-decoration:none;font:600 17px "Chakra Petch",system-ui,sans-serif;letter-spacing:.02em}
+  .bar img{width:28px;height:28px;filter:drop-shadow(0 0 8px rgba(69,200,255,.6))}
+  video{width:100%;max-height:78vh;background:#000;border-radius:14px;display:block;border:1px solid rgba(190,225,255,.18);box-shadow:0 24px 70px rgba(0,0,0,.6),0 0 40px rgba(40,130,255,.12)}
+  h1{font:600 22px "Chakra Petch",system-ui,sans-serif;margin:16px 0 4px;color:#eef6ff;overflow-wrap:anywhere}
+  .meta{color:#8fa3bb;font-size:14px} .meta a{color:#9be4ff}
 </style>
 </head><body><main>
 <a class="bar" href="/home"><img src="/static/favicon.svg" alt="">${esc(config.siteName)}</a>
@@ -91,7 +92,7 @@ export function handleClipPage(req, res, pathname) {
   if (m[2]) { sendFile(req, res, clipFile(clip.id, m[2].slice(1)), { 'Cache-Control': MEDIA_CACHE }); return true; }
   send(res, 200, watchPage(req, clip), 'text/html; charset=utf-8', {
     'Cache-Control': 'no-cache',
-    'Content-Security-Policy': "default-src 'none'; media-src 'self'; img-src 'self'; style-src 'unsafe-inline'",
+    'Content-Security-Policy': "default-src 'none'; media-src 'self'; img-src 'self'; font-src 'self'; style-src 'unsafe-inline'",
   });
   return true;
 }

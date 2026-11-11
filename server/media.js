@@ -22,11 +22,11 @@ const SAFE_FORMAT = /^(mov|mp4|m4a|3gp|3g2|mj2|matroska|webm|avi|flv|mpegts|asf)
 // hit or miss, 421 MB+ never. 250 MB keeps a margin. Smaller files also embed faster: Discord downloads the
 // whole file (twice) before it shows the player.
 export const PRESETS = {
-  discord: { label: `Discord max (${config.embedCapMB} MB)`, cap: config.embedCapMB * 1e6, audioKbps: 160 },
-  medium: { label: 'Fast embed (100 MB)', cap: 100e6, audioKbps: 160 },
-  small: { label: 'Small (50 MB)', cap: 50e6, audioKbps: 128 },
-  upload: { label: 'Discord free upload (10 MB)', cap: 10e6, audioKbps: 96 },
-  original: { label: `Best quality, no size cap (may not embed over ${config.embedCapMB} MB)`, cap: null, audioKbps: 192 },
+  discord: { label: `Discord · ${config.embedCapMB} MB`, cap: config.embedCapMB * 1e6, audioKbps: 160 },
+  medium: { label: 'Fast embed · 100 MB', cap: 100e6, audioKbps: 160 },
+  small: { label: 'Small · 50 MB', cap: 50e6, audioKbps: 128 },
+  upload: { label: 'Free Discord upload · 10 MB', cap: 10e6, audioKbps: 96 },
+  original: { label: 'Best quality · no size limit', cap: null, audioKbps: 192 },
 };
 
 // Video bitrate that already looks very good for game footage; we never go above it even when the cap
@@ -73,6 +73,14 @@ export async function makeLeveledPreview(src, n, level, outFile) {
   await run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-v', 'error', ...SAFE, '-i', src, '-map', `0:a:${n}`, '-vn', '-sn',
     '-af', `${trackPrep}${levelFilter(level)}`, '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', tmp]);
   writePeaks(await pcmOf(tmp, '0:a:0'), outFile.replace(/^(.*)audio-(\d+-\w+)\.m4a$/, '$1peaks-$2.json'));
+  fs.renameSync(tmp, outFile);
+}
+
+// A small private library poster. Like every read of an upload, this keeps ffmpeg on the safe protocols/demuxers.
+export async function makePoster(src, at, outFile) {
+  const tmp = `${outFile}.tmp.jpg`;
+  await run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-v', 'error', ...SAFE, '-ss', String(at), '-i', src, '-map', '0:v:0', '-frames:v', '1',
+    '-vf', 'scale=480:-2', '-q:v', '4', tmp]);
   fs.renameSync(tmp, outFile);
 }
 

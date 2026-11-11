@@ -1,5 +1,5 @@
 // Home page: sign in, upload recordings (in resumable pieces), list clips and recordings.
-import { api, $, esc, fmtBytes, fmtDuration, ago, toast, copy, jobText, renderHeader, ownerTag, sleep } from './common.js';
+import { api, $, esc, fmtBytes, fmtDuration, ago, toast, copy, jobText, renderHeader, ownerTag, sleep, icon, ask, confirmDialog, promptDialog, menu, blocks } from './common.js';
 
 let me = null, status = null, pollTimer = null, ownerFilter = '';
 
@@ -88,10 +88,9 @@ function putPiece(url, blob, onProgress, xhrs) {
 async function uploadOne(file) {
   const el = document.createElement('div');
   el.className = 'upload';
-  el.innerHTML = `<div class="row spread"><span class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(file.name)}</span>
-    <span class="muted small" data-stat>starting…</span><button class="small danger" data-cancel>Cancel</button></div>
-    <div class="progress"><div></div></div>`;
-  $('#uploads').append(el);
+  el.innerHTML = `<div class="urow"><span class="uname" title="${esc(file.name)}">${esc(file.name)}</span><button class="small" data-cancel type="button">Cancel</button></div>
+    <div class="progress"><div></div></div><div class="ustat num" data-stat>starting…</div>`;
+  $('#uploads').append(el); syncEmpty();
   const bar = el.querySelector('.progress > div'), stat = el.querySelector('[data-stat]');
   const xhrs = new Set();
   let cancelled = false, up = null;
@@ -156,33 +155,51 @@ async function uploadOne(file) {
   } catch (e) {
     if (e.status && e.status >= 400 && e.status < 500 && e.status !== 409) localStorage.removeItem(resumeKey(file));
     throw e;
-  } finally { el.remove(); }
+  } finally { el.remove(); syncEmpty(); }
 }
 
-const fileInput = $('#file'), drop = $('#drop');
-drop.onclick = () => fileInput.click();
-drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } };
+// ---- drop / pick ----
+const fileInput = $('#file'), veil = $('#dropveil');
+const pick = () => fileInput.click();
+$('#uploadBtn').onclick = pick; $('#emptyUpload').onclick = pick;
 fileInput.onchange = () => { addFiles(fileInput.files); fileInput.value = ''; };
-for (const ev of ['dragenter', 'dragover']) document.addEventListener(ev, (e) => { e.preventDefault(); if (me) drop.classList.add('over'); });
-for (const ev of ['dragleave', 'drop']) document.addEventListener(ev, (e) => { e.preventDefault(); if (ev === 'drop' || !e.relatedTarget) drop.classList.remove('over'); });
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+for (const ev of ['dragenter', 'dragover']) document.addEventListener(ev, (e) => { e.preventDefault(); if (me && hasFiles(e)) veil.hidden = false; });
+for (const ev of ['dragleave', 'drop']) document.addEventListener(ev, (e) => { e.preventDefault(); if (ev === 'drop' || !e.relatedTarget) veil.hidden = true; });
 document.addEventListener('drop', (e) => { if (me) addFiles(e.dataTransfer.files); });
 window.addEventListener('beforeunload', (e) => { if (uploading) { e.preventDefault(); e.returnValue = ''; } });
 
 // ======================= lists =======================
+// A list's DOM is only replaced when its HTML changed, so hover, focus and loaded images survive the polling.
+const lastHtml = new WeakMap();
+function setHtml(el, html) { if (lastHtml.get(el) !== html) { lastHtml.set(el, html); el.innerHTML = html; } }
+
+let clipsById = new Map(), sourcesById = new Map(), counts = { clips: 0, sources: 0 };
+const failedImgs = new Set();   // images that did not load (no thumbnail yet): show the placeholder instead
+const meta = (parts) => parts.filter(Boolean).map((t, i, a) => `<span class="mi">${t}${i < a.length - 1 ? ' ·' : ''}</span>`).join(' ');
+const placeholder = (kind) => `<span class="ph" aria-hidden="true">${icon(kind)}</span>`;
+const img = (src, cls) => (failedImgs.has(src) ? '' : `<img class="${cls}" src="${esc(src)}" alt="" loading="lazy" decoding="async">`);
+document.addEventListener('error', (e) => {
+  const t = e.target;
+  if (!(t instanceof HTMLImageElement) || !t.dataset.ph) return;
+  failedImgs.add(t.getAttribute('src'));
+  t.replaceWith(Object.assign(document.createElement('span'), { className: 'ph', innerHTML: icon(t.dataset.ph) }));
+}, true);
+
 function clipCard(c) {
-  return `<div class="card">
-    <a class="thumb" href="${esc(c.url)}" target="_blank" rel="noopener" style="${c.hasThumb ? `background-image:url('/api/clips/${c.id}.jpg')` : ''}">
-      <span class="dur">${fmtDuration(c.duration)}</span></a>
-    <div class="body">
-      <div class="title" title="${esc(c.title)}">${esc(c.title)}</div>
-      <div class="small muted">${c.height}p${c.fps || ''} · ${fmtBytes(c.size)} · ${ago(c.created)}</div>
+  const src = `/api/clips/${c.id}.jpg`;
+  const thumb = c.hasThumb && !failedImgs.has(src) ? `<img class="timg" data-ph="play" src="${src}" alt="" loading="lazy" decoding="async">` : placeholder('play');
+  return `<article class="card">
+    <a class="thumb" href="${esc(c.url)}" target="_blank" rel="noopener" aria-label="Open ${esc(c.title)}">${thumb}<span class="dur num">${fmtDuration(c.duration)}</span></a>
+    <div class="cbody">
+      <div class="ctitle" title="${esc(c.title)}">${esc(c.title)}</div>
+      <div class="cmeta num">${meta([`${c.height}p${c.fps || ''}`, fmtBytes(c.size), ago(c.created)])}</div>
       ${me.admin && c.owner !== me.id ? ownerTag(c.ownerName) : ''}
-      <div class="actions">
-        <button class="primary small" data-copy="${esc(c.url)}">Copy link</button>
-        ${!c.sourceGone ? `<a href="/edit/${c.sourceId}"><button class="small" title="Open the recording this came from">Edit</button></a>` : ''}
-        <button class="small danger" data-delclip="${c.id}" title="Delete the link">✕</button>
+      <div class="cact">
+        <button class="primary small grow" data-copy="${esc(c.url)}" type="button">${icon('link')}Copy link</button>
+        <button class="icon small" data-clipmenu="${c.id}" type="button" aria-label="More actions" aria-haspopup="menu">${icon('more')}</button>
       </div>
-    </div></div>`;
+    </div></article>`;
 }
 
 function sourceRow(s) {
@@ -193,46 +210,109 @@ function sourceRow(s) {
     : s.status === 'error' ? '<span class="badge error">error</span>' : `<span class="badge busy">${esc(job ? jobText(job) : 'preparing')}</span>`;
   const tracks = i.audio.length ? `${i.audio.length} audio track${i.audio.length > 1 ? 's' : ''}` : 'no audio';
   const done = s.exports.filter((x) => x.state === 'done').length;
-  return `<div class="rec"><div class="info">
-      <div class="name">${esc(s.name)}</div>
-      <div class="small muted">${fmtDuration(i.duration)} · ${i.width}×${i.height} · ${i.fps} fps · ${tracks} · ${fmtBytes(s.size)} · ${ago(s.created)}${done ? ` · ${done} clip${done > 1 ? 's' : ''}` : ''}</div>
+  const posterSrc = `/api/sources/${s.id}/poster.jpg`;
+  const poster = s.status === 'ready' && !failedImgs.has(posterSrc) ? `<img class="timg" data-ph="scissors" src="${posterSrc}" alt="" loading="lazy" decoding="async">` : placeholder('scissors');
+  return `<article class="rec">
+    <div class="poster">${poster}</div>
+    <div class="rinfo">
+      <div class="rname">${esc(s.name)}</div>
+      <div class="rmeta num">${meta([fmtDuration(i.duration), `${i.width}×${i.height}`, `${i.fps} fps`, tracks, fmtBytes(s.size), ago(s.created), done ? `${done} clip${done > 1 ? 's' : ''}` : ''])}</div>
       ${me.admin && s.owner !== me.id ? ownerTag(s.ownerName) : ''}
       ${s.status === 'error' ? `<div class="bad small">${esc(s.error)}</div>` : ''}
-      ${failed.length ? `<div class="fails">${failed.map((x) => `<div class="small"><span class="bad">Export "${esc(x.title || 'untitled')}" failed: ${esc(x.error)}</span>
-        <button class="small ghost" data-forget="${s.id}/${x.clipId}">dismiss</button></div>`).join('')}</div>` : ''}
+      ${failed.length ? `<div class="fails">${failed.map((x) => `<div class="fail"><span class="bad small">Export "${esc(x.title || 'untitled')}" failed: ${esc(x.error)}</span>
+        <button class="small ghost" data-forget="${s.id}/${x.clipId}" type="button">Dismiss</button></div>`).join('')}</div>` : ''}
     </div>
-    ${st}
-    <a href="/edit/${s.id}"><button class="${s.status === 'ready' ? 'primary' : ''}">${done ? 'Make another clip' : 'Edit'}</button></a>
-    <button class="danger" data-delsrc="${s.id}" title="Delete the recording (clips you shared keep working)">Delete</button>
-  </div>`;
+    <div class="ract">${st}
+      <a class="btn ${s.status === 'ready' && !done ? 'primary' : ''}" href="/edit/${s.id}">${done ? 'New clip' : 'Edit'}</a>
+      <button class="icon" data-srcmenu="${s.id}" type="button" aria-label="More actions" aria-haspopup="menu">${icon('more')}</button>
+    </div></article>`;
+}
+
+function usageHtml(st) {
+  const u = st.user, busy = st.queue > 0 ? `<span class="badge busy">${st.queue} encoding</span>` : '';
+  if (u.quota) {
+    const f = Math.min(1, u.used / u.quota);
+    return `<div class="gauge" title="${fmtBytes(u.used)} of ${fmtBytes(u.quota)} used">${blocks(f)}<span class="num">${esc(fmtBytes(u.used))} / ${esc(fmtBytes(u.quota))}</span></div>${busy}`;
+  }
+  return `${st.diskFree != null ? `<div class="gauge"><span class="num">${esc(fmtBytes(st.diskFree))} free</span></div>` : ''}${busy}`;
+}
+
+// One big drop zone instead of the lists when there is nothing at all
+function syncEmpty() {
+  const empty = !ownerFilter && counts.clips === 0 && counts.sources === 0 && !$('#uploads').children.length && !uploading && !pending.length && status;
+  $('#bigEmpty').hidden = !empty; $('#lists').hidden = !!empty;
 }
 
 async function refresh() {
   clearTimeout(pollTimer);
+  if (document.querySelector('.menu')) { pollTimer = setTimeout(refresh, 1000); return; }   // don't pull a menu out from under the user
   try {
     const q = ownerFilter ? `?owner=${encodeURIComponent(ownerFilter)}` : '';
     const [sources, clips, st] = await Promise.all([api(`/api/sources${q}`), api(`/api/clips${q}`), api('/api/status')]);
+    if (document.querySelector('.menu')) { pollTimer = setTimeout(refresh, 1000); return; }
     status = st;
-    $('#clips').innerHTML = clips.map(clipCard).join('') || '<div class="empty" style="grid-column:1/-1">No clips yet. Upload a recording, trim it and export.</div>';
-    $('#sources').innerHTML = sources.map(sourceRow).join('') || '<div class="empty">No recordings.</div>';
+    clipsById = new Map(clips.map((c) => [c.id, c])); sourcesById = new Map(sources.map((s) => [s.id, s]));
+    counts = { clips: clips.length, sources: sources.length };
+    setHtml($('#clips'), clips.map(clipCard).join('') || '<div class="empty" style="grid-column:1/-1">No clips yet</div>');
+    setHtml($('#sources'), sources.map(sourceRow).join('') || '<div class="empty">No recordings</div>');
     $('#clipCount').textContent = clips.length; $('#recCount').textContent = sources.length;
-    const u = st.user;
-    if (u.quota) {
-      $('#usage').hidden = false;
-      $('#usageText').textContent = `${fmtBytes(u.used)} of ${fmtBytes(u.quota)} used`;
-      const f = Math.min(1, u.used / u.quota);
-      $('#usageMeter').classList.toggle('full', f > 0.9); $('#usageMeter > div').style.width = `${f * 100}%`;
-    } else if (st.diskFree != null) {
-      $('#usage').hidden = false; $('#usageText').textContent = `${fmtBytes(st.diskFree)} free on the server${st.queue ? ` · ${st.queue} job${st.queue > 1 ? 's' : ''} running/queued` : ''}`;
-      $('#usageMeter').hidden = true;
-    }
-    if (st.retentionDays) { $('#retention').hidden = false; $('#retention').textContent = `Recordings are deleted automatically after ${st.retentionDays} days. Clips stay.`; }
+    setHtml($('#usage'), usageHtml(st));
+    $('#retention').hidden = !st.retentionDays;
+    if (st.retentionDays) $('#retention').textContent = `Recordings are deleted after ${st.retentionDays} days. Clips stay.`;
+    syncEmpty();
     const busy = sources.some((s) => (s.status !== 'ready' && s.status !== 'error') || s.exports.some((x) => x.state === 'queued' || x.state === 'running'));
     pollTimer = setTimeout(refresh, busy ? 2000 : 20000);
   } catch (e) {
-    $('#clips').innerHTML = `<div class="empty bad" style="grid-column:1/-1">Could not load: ${esc(e.message)}</div>`;
+    $('#lists').hidden = false; $('#bigEmpty').hidden = true;
+    setHtml($('#clips'), `<div class="empty bad" style="grid-column:1/-1">Could not load: ${esc(e.message)}</div>`);
     pollTimer = setTimeout(refresh, 5000);
   }
+}
+
+// ---- actions ----
+function clipMenu(btn, c) {
+  menu(btn, [
+    { label: 'Open page', icon: 'open', run: () => window.open(c.url, '_blank', 'noopener') },
+    ...(!c.sourceGone ? [{ label: 'Edit', icon: 'edit', run: () => { location.href = `/edit/${c.sourceId}?clip=${c.id}`; } }] : []),
+    { label: 'Rename', icon: 'edit', run: async () => {
+      const title = await promptDialog('Rename clip', { label: 'Title', value: c.title });
+      if (title === null || !title.trim() || title.trim() === c.title) return;
+      try { await api(`/api/clips/${c.id}`, { method: 'PATCH', body: { title } }); } catch (e) { toast(e.message, true); }
+      refresh();
+    } },
+    { label: 'Download', icon: 'download', run: () => { const a = Object.assign(document.createElement('a'), { href: c.mp4, download: '' }); document.body.append(a); a.click(); a.remove(); } },
+    '-',
+    { label: 'Delete', icon: 'trash', danger: true, run: async () => {
+      if (!(await confirmDialog('Delete this clip?', 'Its link stops working.', { ok: 'Delete', danger: true }))) return;
+      try { await api(`/api/clips/${c.id}`, { method: 'DELETE' }); toast('Clip deleted'); } catch (e) { toast(e.message, true); }
+      refresh();
+    } },
+  ]);
+}
+
+async function deleteSource(s) {
+  const clips = s.exports.filter((x) => x.state === 'done' && x.clip).map((x) => x.clip);
+  const thumbs = clips.slice(0, 4).map((c) => (c.hasThumb ? `<img src="/api/clips/${c.id}.jpg" alt="" data-ph="play" loading="lazy">` : placeholder('play'))).join('');
+  const body = `<div class="delsplit">
+    <div class="delbox gone"><span class="dlabel">Removed</span><b>${esc(s.name)}</b><span class="num">${esc(fmtBytes(s.size))}</span></div>
+    ${clips.length ? `<div class="delbox kept"><span class="dlabel">Kept</span><b class="num">${clips.length} clip${clips.length > 1 ? 's' : ''}</b><span class="minis">${thumbs}</span><span>links keep working</span></div>` : ''}</div>`;
+  const ok = await ask({ title: 'Delete this recording?', body, actions: [{ label: 'Cancel', value: false }, { label: 'Delete recording', value: true, kind: 'danger solid' }] });
+  if (ok !== true) return;
+  try { await api(`/api/sources/${s.id}`, { method: 'DELETE' }); toast('Recording deleted'); } catch (e) { toast(e.message, true); }
+  refresh();
+}
+
+function sourceMenu(btn, s) {
+  menu(btn, [
+    { label: 'Rename', icon: 'edit', run: async () => {
+      const name = await promptDialog('Rename recording', { label: 'Name', value: s.name });
+      if (name === null || !name.trim() || name.trim() === s.name) return;
+      try { await api(`/api/sources/${s.id}`, { method: 'PATCH', body: { name } }); } catch (e) { toast(e.message, true); }
+      refresh();
+    } },
+    '-',
+    { label: 'Delete', icon: 'trash', danger: true, run: () => deleteSource(s) },
+  ]);
 }
 
 $('#app').addEventListener('click', async (e) => {
@@ -240,18 +320,14 @@ $('#app').addEventListener('click', async (e) => {
   const d = b.dataset;
   try {
     if (d.copy) return copy(d.copy);
-    if (d.delclip) {
-      if (!confirm('Delete this clip? Its link stops working (Discord may keep showing an embed it already loaded for a while).')) return;
-      await api(`/api/clips/${d.delclip}`, { method: 'DELETE' }); toast('Clip deleted');
-    } else if (d.forget) {
+    if (d.clipmenu) { const c = clipsById.get(d.clipmenu); return c && clipMenu(b, c); }
+    if (d.srcmenu) { const s = sourcesById.get(d.srcmenu); return s && sourceMenu(b, s); }
+    if (d.forget) {
       const [sid, clipId] = d.forget.split('/');
       await api(`/api/sources/${sid}/exports/${clipId}`, { method: 'DELETE' });
-    } else if (d.delsrc) {
-      if (!confirm('Delete this recording and its editor files? Clips you already shared keep working.')) return;
-      await api(`/api/sources/${d.delsrc}`, { method: 'DELETE' }); toast('Recording deleted');
-    } else return;
+      refresh();
+    }
   } catch (err) { toast(err.message, true); }
-  refresh();
 });
 
 start();

@@ -1,0 +1,76 @@
+/* Account / people page. Builds on app.css. */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.nowrap { white-space: nowrap; }
+
+/* stat tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.tile {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 14px 16px; border-radius: var(--r);
+  background: var(--glass); border: 1px solid var(--glass-line); box-shadow: var(--hi), var(--shadow);
+}
+.tile .k, .mestat .k { font: 600 12px var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--ink3); }
+.tile .v { font-size: 22px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile .v .num { font-size: 22px; }
+
+/* people table */
+.tablewrap { padding: 4px 10px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; }
+table.users th { text-align: left; padding: 11px 12px 9px; font: 600 12px var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--ink3); }
+table.users td { padding: 11px 12px; border-top: 1px solid var(--line); vertical-align: middle; }
+table.users td.r, table.invites td.r { text-align: right; white-space: nowrap; }
+table.users tr.disabled td:not(.r) { opacity: .6; }
+table.users tr[data-secret] td { border-top: 0; padding-top: 0; }
+.who { display: inline-flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.who b { font-size: 15px; }
+.store { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.store .blocks { width: 110px; }
+.adminpw { margin: 10px 4px 0; font-size: 13px; color: var(--ink3); }
+
+/* add / invite panels */
+.twin { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 28px; align-items: start; }
+.twin h2 { display: flex; align-items: center; gap: 10px; }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.fields .wide { grid-column: 1 / -1; }
+.twin form > button, #pwForm > button { margin-top: 16px; }
+table.invites { margin-top: 12px; }
+table.invites:has(tbody:empty) { display: none; }
+table.invites td { padding: 8px 6px; border-top: 1px solid var(--line); font-size: 14px; }
+table.invites td.inote { overflow-wrap: anywhere; }
+@media (max-width: 900px) { .twin { grid-template-columns: 1fr; } }
+
+/* the one-time secret */
+.secret {
+  display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding: 12px 14px; border-radius: 12px;
+  background: linear-gradient(180deg, rgba(69,200,255,.14), rgba(69,200,255,.05)); border: 1px solid var(--aqua);
+  box-shadow: var(--glow), inset 0 0 24px rgba(69,200,255,.1);
+}
+.secret .slabel { font-weight: 600; }
+.secret .sval { display: flex; align-items: center; gap: 10px; }
+.secret code { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 8px; background: var(--well); overflow-wrap: anywhere; user-select: all; font: 500 15px var(--display); letter-spacing: .02em; }
+.secret .snote { font-size: 13px; color: var(--aqua2); }
+table.users .secret { margin: 0 0 6px; max-width: 520px; }
+
+/* a friend's own account */
+.selfview { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.mehead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.mehead .mename { font-size: 24px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.avatar.big { width: 56px; height: 56px; font-size: 20px; }
+.mestats { display: flex; flex-wrap: wrap; gap: 14px 36px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.mestat { display: flex; flex-direction: column; gap: 8px; }
+.mestat .v { font-size: 22px; }
+.selfview form > label:first-of-type { margin-top: 0; }
+#pwForm > button { width: 100%; }
+@media (max-width: 900px) { .selfview { grid-template-columns: 1fr; } }
+
+@media (max-width: 700px) {
+  .hide-sm { display: none; }
+  .fields { grid-template-columns: 1fr; }
+  .store .blocks { display: none; }
+  .tiles { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tile { padding: 12px; } .tile .v, .tile .v .num { font-size: 18px; }
+  table.users td, table.users th { padding-left: 8px; padding-right: 8px; }
+  table.users td.r { padding-left: 0; }
+  .secret .sval { flex-wrap: wrap; }
+}
+table.invites .danger { color: var(--red); }
+.mestat .store, .mestat .v { min-height: 28px; display: flex; align-items: center; }

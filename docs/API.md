@@ -45,12 +45,12 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 ```
 **Job**: `{ id: "10 chars", kind: "prepare"|"preview"|"render", state: "queued"|"running"|"done"|"error", progress: 0..1, error?, clipId?, sourceId, position }`
 
-**Clip**: `{ id: "12 chars", owner, ownerName, title, created, width, height, fps, duration, size, hasThumb, sourceId, sourceGone, preset, gpu, url, mp4 }` (sourceGone: the recording was deleted; the clip stays)
+**Clip**: `{ id: "12 chars", owner, ownerName, title, created, width, height, fps, duration, size, hasThumb, sourceId, sourceGone, preset, gpu, edit?: Edit, url, mp4 }` (sourceGone: the recording was deleted; the clip stays). `edit` is the cleaned settings used to make a finished clip; it is available only through signed-in clip API routes, never public pages or files.
 
 ## Uploads (in pieces)
 | method | path | |
 |---|---|---|
-| POST | `/api/uploads` | `{ name, size }` → 201 `{ id: "20 chars", chunkSize, received: 0, size, pieces: [] }`. Checks type, size, disk, quota first |
+| POST | `/api/uploads` | `{ name, size }` → 201 `{ id: "20 chars", chunkSize, received: 0, size, pieces: [] }`. Checks type, size, disk, quota first; unfinished uploads reserve their full declared size for quota and disk checks. The same `name` + `size` as one of your unfinished uploads returns that upload (with its `received` and `pieces`) to continue |
 | GET | `/api/uploads/<id>` | `{ received, size, chunkSize, pieces }` (to resume: `pieces` = numbers of the pieces that arrived) |
 | PUT | `/api/uploads/<id>?offset=N` | piece number N / chunkSize: raw bytes, exactly `chunkSize` (less for the last). Any order, several at once; a piece sent again is accepted → `{ received, pieces }` |
 | POST | `/api/uploads/<id>/complete` | probes the file → 201 Source (then prepared in the background), or 400 if it isn't a usable video |
@@ -63,10 +63,11 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 | GET | `/api/sources[?owner=<id>]` | Source[] newest first (`owner` filter: admin) |
 | GET / PATCH / DELETE | `/api/sources/<sid>` | read; `{ edit?, name? }` autosave; delete the recording (its clips stay online) |
 | POST | `/api/sources/<sid>/plan` | Edit → `{ w, h, fps, dur, audioKbps, cap, estBytes, mode, activeTracks, … }` or 400 |
-| POST | `/api/sources/<sid>/export` | Edit → 202 Job. 409 not ready, 429 too many waiting exports (friends) |
+| POST | `/api/sources/<sid>/export` | Edit → 202 Job. 409 not ready, 413 when a friend is at quota (delete recordings/clips or ask the admin), 507 when free disk is below the configured reserve, 429 too many waiting exports (friends) |
 | POST | `/api/sources/<sid>/preview` | → Source. Starts converting preview.mp4 if `preview` is "needed" or "error" (the editor calls this when the browser can't play the recording) |
 | POST | `/api/sources/<sid>/leveled` | `{ n, level }` → `{ url, peaks }` leveled preview of a track (made once, cached) |
 | POST | `/api/sources/<sid>/loudness` | `{ tracks: [{ n, level }] }` → `[{ n, level, lufs }]` |
+| GET | `/api/sources/<sid>/poster.jpg` | Owner/admin only. Lazily creates and caches a 480px JPEG recording thumbnail; 404 when the recording is not ready or a poster cannot be made |
 | DELETE | `/api/sources/<sid>/exports/<clipId>` | dismiss a failed export (a finished one is deleted with its clip) |
 | GET | `/api/sources/<sid>/preview.mp4`, `original.mp4` (if `direct` and the preview isn't made), `audio-<n>[-light\|-strong].m4a`, `peaks-<n>[-light\|-strong].json` | editor media |
 | GET | `/api/jobs/<id>` | Job |

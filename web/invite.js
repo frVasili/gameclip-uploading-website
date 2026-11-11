@@ -9,7 +9,7 @@ history.replaceState(null, '', '/invite');   // keep the token out of the addres
     if (!token) throw new Error('This invite link is invalid, already used, or expired.');
     const d = await api('/api/invite/check', { method: 'POST', body: { token } });
     document.title = `Join ${d.siteName}`; $('#title').textContent = d.siteName;
-    $('#intro').textContent = 'You were invited. Pick a name and a password to sign in with.';
+    $('#intro').textContent = 'Pick a name and a password.';
     $('#form').hidden = false;
   } catch (e) {
     $('#title').textContent = 'Invite not valid'; $('#intro').textContent = e.message;

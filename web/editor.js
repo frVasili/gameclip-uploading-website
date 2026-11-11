@@ -1,9 +1,9 @@
 // Editor: preview with live audio mixing, waveform timeline with trim handles, export.
-import { api, $, esc, fmtBytes, fmtTime, fmtDuration, parseTime, toast, copy, debounce, sleep, waitJob, jobText, renderHeader, requireUser } from './common.js';
+import { api, $, esc, fmtBytes, fmtTime, fmtDuration, parseTime, toast, copy, debounce, sleep, waitJob, jobText, renderHeader, requireUser, icon } from './common.js';
 
 const sid = location.pathname.split('/').pop();
 const base = `/api/sources/${sid}`;
-const COLORS = ['#7c5cff', '#3ecf8e', '#f5b84b', '#4bb8f5', '#ff5c7a', '#c77dff'];
+const COLORS = ['#45c8ff', '#8fe04a', '#ffc24a', '#c58bff', '#ff7a9c', '#4fe3c1'];
 const MIN_LEN = 0.5;
 
 const video = $('#video'), canvas = $('#timeline'), overlay = $('#overlay'), fadeOverlay = $('#fadeOverlay');
@@ -11,6 +11,14 @@ let source, info, edit, presets = {}, gpuDefault = false;
 let peaks = [];                 // per track: array of 0-255, 100 per second
 let view = { t0: 0, t1: 1 };    // visible timeline range (seconds)
 let dirtyWave = true;           // waveform cache needs a redraw
+let dirty = true;               // the overlay (handles, playhead, ...) needs a redraw
+let lanes = [];                 // indexes of the audio tracks shown as lanes
+let showAll = false;            // the user expanded the hidden copies / silent tracks
+
+$('#play').innerHTML = `${icon('play')}<span>Play</span>`;
+$('#keysBtn').innerHTML = icon('keyboard');
+$('#zoomOut').innerHTML = icon('minus');
+$('#zoomIn').innerHTML = icon('plus');
 
 // ======================= audio preview =======================
 // The preview video has no sound. Each source track plays from its own <audio>, routed through Web Audio so the
@@ -74,8 +82,8 @@ function togglePlay() {
     video.play().catch((e) => toast(`Can't play: ${e.message}`, true));
   } else video.pause();
 }
-video.addEventListener('play', () => { $('#play').textContent = '❚❚ Pause'; });
-video.addEventListener('pause', () => { $('#play').textContent = '▶ Play'; });
+video.addEventListener('play', () => { $('#play').innerHTML = `${icon('pause')}<span>Pause</span>`; });
+video.addEventListener('pause', () => { $('#play').innerHTML = `${icon('play')}<span>Play</span>`; });
 video.addEventListener('click', togglePlay);
 $('#play').onclick = togglePlay;
 
@@ -86,6 +94,8 @@ function fadeFactor(t) {
   return Math.min(1, Math.max(0, f));
 }
 
+// One animation frame: keep the fade/loop logic running, but only touch the DOM and the canvas when something changed.
+let lastT = -1, shownTime = '', lastF = -1, lastOp = '';
 function frame() {
   const t = video.currentTime;
   if (!video.paused && t >= edit.end - 0.02) {
@@ -93,32 +103,40 @@ function frame() {
     else { video.pause(); video.currentTime = edit.end; }
   }
   const f = fadeFactor(t);
-  if (master) master.gain.value = f;
-  fadeOverlay.style.opacity = edit.videoFade ? String(1 - f) : '0';
-  $('#time').textContent = `${fmtTime(t)} / ${fmtTime(info.duration)}`;
+  if (f !== lastF) { lastF = f; if (master) master.gain.value = f; }
+  const op = edit.videoFade ? String(1 - f) : '0';
+  if (op !== lastOp) { lastOp = op; fadeOverlay.style.opacity = op; }
+  const ts = fmtTime(t);
+  if (ts !== shownTime) { shownTime = ts; $('#timeNow').textContent = ts; }
   // keep the playhead visible while playing zoomed in
   if (!video.paused && !drag && (t > view.t1 || t < view.t0)) { const span = view.t1 - view.t0; setView(t - span * 0.05, t + span * 0.95); }
-  draw();
+  if (dirty || dirtyWave || t !== lastT) { lastT = t; dirty = false; draw(); }
   requestAnimationFrame(frame);
 }
 
 // ======================= timeline =======================
 const RULER = 22, MARK = 12;
-const laneH = () => (info.audio.length <= 1 ? 64 : info.audio.length <= 3 ? 46 : 34);
+const narrowMq = matchMedia('(max-width: 799px)'), coarseMq = matchMedia('(pointer: coarse)');
+const laneH = () => (narrowMq.matches ? 44 : lanes.length <= 1 ? 72 : 56);
+const HIT = () => (coarseMq.matches ? 18 : 9);
 const waveCanvas = document.createElement('canvas');
 let W = 0, H = 0, dpr = 1;
 
 function layout() {
   dpr = window.devicePixelRatio || 1;
   W = canvas.clientWidth;
-  H = RULER + Math.max(1, info.audio.length) * laneH() + MARK;
+  const lh = laneH(), n = Math.max(1, lanes.length);
+  H = RULER + n * lh + MARK;
   canvas.style.height = `${H}px`;
+  $('#tl').style.setProperty('--lane', `${lh}px`);
+  document.documentElement.style.setProperty('--lanes-h', `${n * lh}px`);
   canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
   waveCanvas.width = canvas.width; waveCanvas.height = canvas.height;
   dirtyWave = true;
 }
-const xOf = (t) => ((t - view.t0) / (view.t1 - view.t0)) * W;
-const tOf = (x) => view.t0 + (x / W) * (view.t1 - view.t0);
+const PAD = 12;   // room at both ends so the trim handles are never cut off by the edge
+const xOf = (t) => PAD + ((t - view.t0) / (view.t1 - view.t0)) * (W - 2 * PAD);
+const tOf = (x) => view.t0 + ((x - PAD) / (W - 2 * PAD)) * (view.t1 - view.t0);
 
 function setView(t0, t1) {
   const minSpan = Math.min(1, info.duration), span = Math.min(info.duration, Math.max(minSpan, t1 - t0));
@@ -135,38 +153,41 @@ function drawWaves() {   // cached: only redrawn when the view, the tracks or th
   const c = waveCanvas.getContext('2d');
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, W, H);
+  const lh = laneH(), bottom = H - MARK;
+  // lanes (drawn first so the grid shows on top)
+  c.fillStyle = '#0a1830'; c.fillRect(0, 0, W, H);
+  lanes.forEach((_, k) => { c.fillStyle = k % 2 ? '#0b172f' : '#09132a'; c.fillRect(0, RULER + k * lh, W, lh); });
   // ruler
-  c.fillStyle = '#15151e'; c.fillRect(0, 0, W, RULER);
+  c.fillStyle = '#0a1830'; c.fillRect(0, 0, W, RULER);
+  c.fillStyle = 'rgba(120,170,230,.22)'; c.fillRect(0, RULER - 1, W, 1);
   const span = view.t1 - view.t0;
   const step = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800].find((s) => (s / span) * W >= 70) || 3600;
-  c.font = '11px system-ui'; c.fillStyle = '#8b8b9e'; c.strokeStyle = '#2a2a38'; c.textBaseline = 'middle';
+  c.font = '500 11px "Chakra Petch", system-ui, sans-serif'; c.fillStyle = '#9db3d1'; c.strokeStyle = 'rgba(120,170,230,.13)'; c.lineWidth = 1; c.textBaseline = 'middle';
   for (let t = Math.ceil(view.t0 / step) * step; t <= view.t1; t += step) {
     const x = Math.round(xOf(t)) + 0.5;
-    c.beginPath(); c.moveTo(x, RULER - 6); c.lineTo(x, H - MARK); c.stroke();
-    c.fillText(fmtTime(t, step < 1 ? 1 : 0), x + 3, RULER / 2);
+    c.beginPath(); c.moveTo(x, RULER - 6); c.lineTo(x, bottom); c.stroke();
+    c.fillText(fmtTime(t, step < 1 ? 1 : 0), x + 4, RULER / 2);
   }
-  // lanes
-  const lh = laneH();
+  // lane separators and waveforms
+  lanes.forEach((_, k) => { c.fillStyle = 'rgba(120,170,230,.14)'; c.fillRect(0, RULER + (k + 1) * lh - 1, W, 1); });
   if (!info.audio.length) {
-    c.fillStyle = '#8b8b9e'; c.fillText('This video has no audio tracks', 10, RULER + lh / 2);
+    c.fillStyle = '#9db3d1'; c.font = '14px "Source Sans 3", system-ui, sans-serif'; c.fillText('This video has no audio tracks', 12, RULER + lh / 2);
   }
-  info.audio.forEach((a, i) => {
-    const y0 = RULER + i * lh, mid = y0 + lh / 2, e = edit.tracks[i], p = peaks[i];
-    c.fillStyle = i % 2 ? '#13131b' : '#111118'; c.fillRect(0, y0, W, lh);
+  lanes.forEach((ti, k) => {
+    const y0 = RULER + k * lh, mid = y0 + lh / 2, e = edit.tracks[ti], p = peaks[ti];
     if (!p) return;
-    c.fillStyle = COLORS[i % COLORS.length];
-    c.globalAlpha = e.muted ? 0.18 : 0.9;
+    c.fillStyle = COLORS[ti % COLORS.length];
+    c.globalAlpha = e.muted ? 0.2 : 0.92;
     const gainShown = e.muted ? 1 : Math.min(2, e.volume);   // louder tracks draw taller (up to 2x)
+    const amp = lh / 2 - 3;
     for (let x = 0; x < W; x++) {
+      if (tOf(x + 1) <= 0 || tOf(x) >= info.duration) continue;   // the padding at both ends
       const i0 = Math.max(0, Math.floor(tOf(x) * 100)), i1 = Math.min(p.length, Math.max(i0 + 1, Math.ceil(tOf(x + 1) * 100)));
-      let m = 0; for (let k = i0; k < i1; k++) if (p[k] > m) m = p[k];
-      const h = Math.min(lh / 2 - 2, (m / 255) * (lh / 2 - 2) * gainShown);
+      let m = 0; for (let q = i0; q < i1; q++) if (p[q] > m) m = p[q];
+      const h = Math.min(amp, (m / 255) * amp * gainShown);
       if (h > 0.3) c.fillRect(x, mid - h, 1, h * 2);
     }
     c.globalAlpha = 1;
-    c.fillStyle = '#e6e6eecc'; c.font = '11px system-ui'; c.textBaseline = 'top';
-    c.fillText(`${a.title || `Track ${i + 1}`}${e.muted ? ' (muted)' : e.volume !== 1 ? ` ${Math.round(e.volume * 100)}%` : ''}`, 6, y0 + 3);
-    c.textBaseline = 'middle';
   });
   dirtyWave = false;
 }
@@ -181,37 +202,45 @@ function draw() {
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   const xs = xOf(edit.start), xe = xOf(edit.end), bottom = H - MARK;
   // dim what gets cut
-  c.fillStyle = 'rgba(0,0,0,.6)';
+  c.fillStyle = 'rgba(4,9,22,.68)';
   if (xs > 0) c.fillRect(0, RULER, Math.min(W, xs), bottom - RULER);
   if (xe < W) c.fillRect(Math.max(0, xe), RULER, W - Math.max(0, xe), bottom - RULER);
   // fades
-  c.fillStyle = 'rgba(124,92,255,.18)';
+  c.fillStyle = 'rgba(69,200,255,.2)';
   if (edit.fadeIn > 0) { c.beginPath(); c.moveTo(xs, RULER); c.lineTo(xOf(edit.start + edit.fadeIn), RULER); c.lineTo(xs, bottom); c.fill(); }
   if (edit.fadeOut > 0) { c.beginPath(); c.moveTo(xe, RULER); c.lineTo(xOf(edit.end - edit.fadeOut), RULER); c.lineTo(xe, bottom); c.fill(); }
   // trim handles
   for (const [x, side] of [[xs, 1], [xe, -1]]) {
     if (x < -10 || x > W + 10) continue;
-    c.fillStyle = '#7c5cff'; c.fillRect(x - 1, RULER, 2, bottom - RULER);
+    c.save();
+    c.shadowColor = 'rgba(69,200,255,.95)'; c.shadowBlur = 9;
+    c.fillStyle = '#45c8ff'; c.fillRect(x - 1, RULER, 2, bottom - RULER);
     c.beginPath(); c.roundRect(side > 0 ? x - 1 : x - 9, 0, 10, RULER, 3); c.fill();
+    c.restore();
     c.fillStyle = '#fff'; c.fillRect(side > 0 ? x + 2 : x - 5, 6, 2, RULER - 12);
+    c.fillRect(side > 0 ? x + 5 : x - 8, 6, 1, RULER - 12);
   }
   // thumbnail marker
   const xt = xOf(edit.thumbTime);
   if (xt >= 0 && xt <= W) {
-    c.fillStyle = '#f5b84b'; c.beginPath(); c.moveTo(xt, bottom + 1); c.lineTo(xt - 5, H); c.lineTo(xt + 5, H); c.fill();
+    c.fillStyle = '#ffc24a'; c.beginPath(); c.moveTo(xt, bottom + 1); c.lineTo(xt - 5, H); c.lineTo(xt + 5, H); c.fill();
   }
   // playhead
   const xp = xOf(video.currentTime);
   if (xp >= 0 && xp <= W) {
+    c.save(); c.shadowColor = 'rgba(255,255,255,.7)'; c.shadowBlur = 6;
     c.fillStyle = '#fff'; c.fillRect(Math.round(xp) - 0.5, RULER - 4, 1.5, bottom - RULER + 4);
     c.beginPath(); c.moveTo(xp - 5, RULER - 8); c.lineTo(xp + 5, RULER - 8); c.lineTo(xp, RULER - 2); c.fill();
+    c.restore();
   }
 }
 
 let drag = null;
 function hit(x) {
-  if (Math.abs(x - xOf(edit.start)) <= 9) return 'start';
-  if (Math.abs(x - xOf(edit.end)) <= 9) return 'end';
+  const z = HIT();
+  const ds = Math.abs(x - xOf(edit.start)), de = Math.abs(x - xOf(edit.end));
+  if (ds <= z && ds <= de) return 'start';
+  if (de <= z) return 'end';
   return 'seek';
 }
 const px = (e) => e.clientX - canvas.getBoundingClientRect().left;
@@ -244,7 +273,8 @@ $('#zoomIn').onclick = () => zoomAround(video.currentTime, 0.5);
 $('#zoomOut').onclick = () => zoomAround(video.currentTime, 2);
 $('#zoomFit').onclick = () => setView(0, info.duration);
 $('#zoomSel').onclick = () => { const pad = (edit.end - edit.start) * 0.06; setView(edit.start - pad, edit.end + pad); };
-new ResizeObserver(() => { if (info) layout(); }).observe(canvas);
+new ResizeObserver(() => { if (info && edit) layout(); }).observe(canvas);
+document.fonts?.ready.then(() => { dirtyWave = true; });
 
 // ======================= edit state =======================
 function defaultEdit() {
@@ -263,78 +293,97 @@ function showTrim() {
   if (document.activeElement !== $('#start')) $('#start').value = fmtTime(edit.start, 2);
   if (document.activeElement !== $('#end')) $('#end').value = fmtTime(edit.end, 2);
   $('#dur').textContent = fmtTime(edit.end - edit.start, 2);
+  dirty = true;
 }
 
-function renderTracks() {
-  const box = $('#tracks');
-  if (!info.audio.length) { box.innerHTML = '<p class="muted">This video has no audio.</p>'; $('#mixHint').hidden = true; return; }
-  $('#mixHint').hidden = info.audio.length < 2;
-  const soloed = (i) => edit.tracks.every((t, j) => (j === i ? !t.muted : t.muted));
-  box.innerHTML = info.audio.map((a, i) => {
-    const e = edit.tracks[i];
-    const desc = [a.channels === 1 ? 'mono' : a.channels === 2 ? 'stereo' : `${a.channels} ch`, a.language].filter(Boolean).join(' · ');
-    return `<div class="track ${e.muted ? 'muted' : ''}">
-      <span class="swatch" style="background:${COLORS[i % COLORS.length]}"></span>
-      <span class="tname" title="${esc(a.title)}">${info.audio.length > 1 && a.title ? `${i + 1}. ` : ''}${esc(a.title || `Track ${i + 1}`)} <span class="muted small">${esc(desc)}</span></span>
-      <button class="small ${e.muted ? 'on' : ''}" data-mute="${i}">${e.muted ? 'Muted' : 'Mute'}</button>
-      ${info.audio.length > 1 ? `<button class="small ${soloed(i) ? 'on' : ''}" data-solo="${i}">Solo</button>` : '<span></span>'}
-      <select class="level" data-level="${i}" title="Even out volume differences inside this track" aria-label="Even out">
-        ${[['off', 'Even out: off'], ['light', 'Even out: light'], ['strong', 'Even out: strong']].map(([v, l]) => `<option value="${v}" ${e.level === v ? 'selected' : ''}>${l}</option>`).join('')}
-      </select>
-      <input type="range" min="0" max="400" step="5" value="${Math.round(e.volume * 100)}" data-vol="${i}" title="Double-click to reset to 100%" aria-label="Volume">
-      <span class="vol" data-volshow="${i}">${levelBusy.has(i) ? '…' : `${Math.round(e.volume * 100)}%`}</span></div>`;
-  }).join('');
-  renderDupHint();
+// Checked on the server when the upload was prepared: tracks with exactly the same sound as an earlier track
+// (OBS can record one mix to several tracks), and silent tracks. Those lanes are hidden while they are muted.
+const hideable = (i) => info.audio.length > 1 && (info.audio[i].sameAs != null || !!info.audio[i].silent);
+const trackName = (i) => info.audio[i].title || `Track ${i + 1}`;
+const soloed = (i) => edit.tracks.every((t, j) => (j === i ? !t.muted : t.muted));
+const levelBusy = new Set();
+const LEVELS = [['off', 'Voices: as recorded'], ['light', 'Even out voices: light'], ['strong', 'Even out voices: strong']];
+
+function refreshLanes() {
+  const all = info.audio.map((_, i) => i);
+  lanes = all.filter((i) => !(hideable(i) && edit.tracks[i].muted && !showAll));
+  if (!lanes.length) lanes = all;
 }
-// Checked on the server when the upload was prepared: tracks in the file with exactly the same sound as an
-// earlier track (OBS can record one mix to several tracks), and silent tracks.
-function renderDupHint() {
-  const nums = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : `${xs[0]}`);
-  const tracksText = (ns) => `track${ns.length > 1 ? 's' : ''} ${nums(ns.map((n) => n + 1))}`;
-  const copies = info.audio.filter((a) => a.sameAs != null), silent = info.audio.filter((a) => a.silent);
+function laneHtml(i) {
+  const a = info.audio[i], e = edit.tracks[i], multi = info.audio.length > 1, pct = Math.round(e.volume * 100);
+  const desc = [a.channels === 1 ? 'mono' : a.channels === 2 ? 'stereo' : `${a.channels} ch`, a.language].filter(Boolean).join(' · ');
+  const tag = a.sameAs != null ? `copy of ${a.sameAs + 1}` : hideable(i) ? 'silent' : '';
+  const nm = trackName(i);
+  return `<div class="lane ${e.muted ? 'muted' : ''} ${levelBusy.has(i) ? 'busy' : ''}" style="--c:${COLORS[i % COLORS.length]}">
+    <div class="l1"><span class="swatch"></span>
+      <span class="tname" title="${esc(`${nm} · ${desc}`)}">${multi && a.title ? `${i + 1}. ` : ''}${esc(nm)}</span>
+      ${tag ? `<span class="tag">${tag}</span>` : ''}
+      <button class="small tg ${e.muted ? 'on' : ''}" data-mute="${i}" data-k="m${i}" aria-pressed="${e.muted}" title="Mute" aria-label="Mute ${esc(nm)}">M</button>
+      ${multi ? `<button class="small tg ${soloed(i) ? 'on' : ''}" data-solo="${i}" data-k="s${i}" aria-pressed="${soloed(i)}" title="Solo" aria-label="Solo ${esc(nm)}">S</button>` : ''}</div>
+    <div class="l2">
+      <input type="range" min="0" max="400" step="5" value="${pct}" data-vol="${i}" data-k="v${i}" title="Volume (double-click to reset)" aria-label="Volume of ${esc(nm)}">
+      <span class="vol num">${pct}%</span>
+      <select class="lsel" data-level="${i}" data-k="l${i}" title="Evens out volume differences inside this track" aria-label="Voice leveling of ${esc(nm)}">
+        ${LEVELS.map(([v, l]) => `<option value="${v}" ${e.level === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    </div></div>`;
+}
+function dupText(items, verb) {
+  const copies = items.filter((i) => info.audio[i].sameAs != null), silent = items.filter((i) => info.audio[i].sameAs == null);
   const parts = [];
-  for (const orig of new Set(copies.map((a) => a.sameAs))) {
-    const same = copies.filter((a) => a.sameAs === orig).map((a) => a.n);
-    parts.push(`${tracksText(same)} ${same.length > 1 ? 'are exact copies' : 'is an exact copy'} of ${tracksText([orig])}`);
+  for (const orig of new Set(copies.map((i) => info.audio[i].sameAs))) {
+    const n = copies.filter((i) => info.audio[i].sameAs === orig).length;
+    parts.push(`${n} identical ${n > 1 ? 'copies' : 'copy'} of Track ${orig + 1}`);
   }
-  if (silent.length && info.audio.length > 1) parts.push(`${tracksText(silent.map((a) => a.n))} ${silent.length > 1 ? 'are' : 'is'} silent`);
-  const hint = $('#dupHint');
-  hint.hidden = !parts.length;
-  if (!parts.length) return;
-  const loudCopies = copies.filter((a) => !edit.tracks[a.n].muted);
-  const txt = `In the uploaded file itself, ${parts.join('; ')}. ` + (copies.length
-    ? 'This usually means the recorder (e.g. OBS: Settings → Output → Recording → Audio Track) saved the same audio to several tracks. Playing copies together just makes it louder.'
-    : '');
-  hint.innerHTML = `${esc(txt)} ${loudCopies.length ? '<button class="small" id="muteCopies">Mute the copies</button>' : ''}`;
-  if (loudCopies.length) $('#muteCopies').onclick = () => { for (const a of copies) edit.tracks[a.n].muted = true; renderTracks(); changed(); };
+  if (silent.length) parts.push(`${silent.length} silent ${silent.length > 1 ? 'tracks' : 'track'}`);
+  return `${parts.join(' · ')} ${verb}`;
 }
-$('#tracks').addEventListener('click', (ev) => {
-  const d = ev.target.dataset;
+function renderTracks() {
+  const focus = document.activeElement?.dataset?.k;
+  const prevN = lanes.length;
+  refreshLanes();
+  const box = $('#laneHeads');
+  box.innerHTML = info.audio.length ? lanes.map(laneHtml).join('') : '<div class="lane empty">No audio tracks</div>';
+  $('#trackCount').textContent = info.audio.length ? `${info.audio.length} ${info.audio.length > 1 ? 'tracks' : 'track'}` : '';
+  $('#matchLevels').hidden = info.audio.length < 2;
+  const all = info.audio.map((_, i) => i).filter(hideable), hidden = all.filter((i) => !lanes.includes(i));
+  const row = $('#dupRow');
+  row.hidden = !(all.length && (hidden.length || showAll));
+  if (!row.hidden) {
+    row.innerHTML = `<span>${esc(dupText(showAll ? all : hidden, showAll ? 'shown' : 'hidden'))}</span><button class="small" data-dup data-k="dup">${showAll ? 'Hide' : 'Show'}</button>`;
+  }
+  document.documentElement.style.setProperty('--dup-h', row.hidden ? '0px' : '42px');
+  if (focus) document.querySelector(`#tl [data-k="${focus}"]`)?.focus();
+  if (W && lanes.length !== prevN) layout();
+  dirtyWave = true;
+}
+$('#dupRow').addEventListener('click', (ev) => { if (ev.target.closest('[data-dup]')) { showAll = !showAll; renderTracks(); } });
+$('#laneHeads').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  const d = b.dataset;
   if (d.mute !== undefined) { const t = edit.tracks[d.mute]; t.muted = !t.muted; }
   else if (d.solo !== undefined) {
-    const i = Number(d.solo), already = edit.tracks.every((t, j) => (j === i ? !t.muted : t.muted));
-    edit.tracks.forEach((t, j) => { t.muted = already ? false : j !== i; });   // solo again = unmute everything
+    const i = Number(d.solo), already = soloed(i);
+    edit.tracks.forEach((t, j) => { t.muted = already ? hideable(j) : j !== i; });   // solo again = back to the default mix
   } else return;
   renderTracks(); changed();
 });
-$('#tracks').addEventListener('change', (ev) => {
+$('#laneHeads').addEventListener('change', (ev) => {
   const i = ev.target.dataset.level; if (i === undefined) return;
   edit.tracks[i].level = ev.target.value;
   useLevel(Number(i)); changed();
 });
-$('#tracks').addEventListener('input', (ev) => {
+$('#laneHeads').addEventListener('input', (ev) => {
   const i = ev.target.dataset.vol; if (i === undefined) return;
   edit.tracks[i].volume = Number(ev.target.value) / 100;
   ev.target.nextElementSibling.textContent = `${ev.target.value}%`;
   changed();
 });
-$('#tracks').addEventListener('dblclick', (ev) => {
+$('#laneHeads').addEventListener('dblclick', (ev) => {
   const i = ev.target.dataset.vol; if (i === undefined) return;
   edit.tracks[i].volume = 1; renderTracks(); changed();
 });
 
 // Leveling can't run in the browser: the server renders a leveled copy of the track and we swap it in.
-const levelBusy = new Set();
 async function useLevel(i) {
   const t = tracks[i], level = edit.tracks[i].level;
   let url = `${base}/audio-${info.audio[i].n}.m4a`, peaksUrl = `${base}/peaks-${info.audio[i].n}.json`;
@@ -366,17 +415,31 @@ $('#matchLevels').onclick = async () => {
       t.volume = Math.min(4, Math.max(0.05, Math.round(Math.pow(10, (target - r.lufs) / 20) * 20) / 20));
     }
     renderTracks(); changed();
-    toast(`Levels matched (${ok.map((r) => `${info.audio[r.n].title || `Track ${r.n + 1}`} ${Math.round(r.lufs)} LUFS`).join(', ')})`);
+    toast(`Levels matched (${ok.map((r) => `${trackName(r.n)} ${Math.round(r.lufs)} LUFS`).join(', ')})`);
   } catch (e) { toast(`Could not measure: ${e.message}`, true); }
-  btn.disabled = false; btn.textContent = 'Match track levels';
+  btn.disabled = false; btn.textContent = 'Match levels';
 };
+
+// Size choices: one radio row per preset.
+function renderSizes() {
+  $('#sizes').innerHTML = Object.entries(presets).map(([k, p]) =>
+    `<label class="size"><input type="radio" name="preset" value="${esc(k)}"><span>${esc(p.label)}</span></label>`).join('');
+  syncSizes();
+}
+function syncSizes() {
+  for (const l of document.querySelectorAll('#sizes .size')) {
+    const r = l.querySelector('input'); r.checked = r.value === edit.preset; l.classList.toggle('on', r.checked);
+  }
+}
+$('#sizes').addEventListener('change', (ev) => { edit.preset = ev.target.value; syncSizes(); changed(); });
 
 function fillFields() {
   showTrim();
   $('#fadeIn').value = edit.fadeIn; $('#fadeOut').value = edit.fadeOut; $('#videoFade').checked = edit.videoFade;
-  $('#normalize').checked = edit.normalize; $('#matchLevels').hidden = info.audio.length < 2;
+  $('#normalize').checked = edit.normalize;
   $('#gpu').checked = !!edit.gpu;
-  $('#title').value = edit.title; $('#preset').value = edit.preset; $('#resolution').value = edit.resolution; $('#fps').value = edit.fps;
+  $('#title').value = edit.title; $('#resolution').value = edit.resolution; $('#fps').value = edit.fps;
+  syncSizes();
   renderTracks();
 }
 
@@ -398,7 +461,7 @@ $('#videoFade').onchange = (ev) => { edit.videoFade = ev.target.checked; changed
 $('#normalize').onchange = (ev) => { edit.normalize = ev.target.checked; changed(); };
 $('#gpu').onchange = (ev) => { edit.gpu = ev.target.checked; changed(); };
 $('#title').addEventListener('input', (ev) => { edit.title = ev.target.value; changed(); });
-for (const k of ['preset', 'resolution', 'fps']) $(`#${k}`).onchange = (ev) => { edit[k] = ev.target.value; changed(); };
+for (const k of ['resolution', 'fps']) $(`#${k}`).onchange = (ev) => { edit[k] = ev.target.value; changed(); };
 $('#setStart').onclick = () => { edit.start = Math.min(video.currentTime, edit.end - MIN_LEN); showTrim(); changed(); };
 $('#setEnd').onclick = () => { edit.end = Math.max(video.currentTime, edit.start + MIN_LEN); showTrim(); changed(); };
 $('#setThumb').onclick = () => { edit.thumbTime = Math.min(Math.max(video.currentTime, edit.start), edit.end); changed(); toast('Thumbnail set to this frame'); };
@@ -424,23 +487,32 @@ const updatePlan = debounce(async () => {
   try {
     const p = await api(`${base}/plan`, { method: 'POST', body: edit });
     if (seq !== planSeq) return;
-    const cap = p.cap ? ` (limit ${fmtBytes(p.cap)})` : '';
-    const audio = !info.audio.length ? 'no audio' : !p.audioKbps ? '<span class="bad">all audio muted</span>'
-      : `audio ${p.activeTracks.length > 1 ? 'mixed to one track' : 'kept'}${edit.normalize ? ', standard volume' : ''}${p.activeTracks.some((t) => t.level !== 'off') ? ', evened out' : ''}`;
-    el.innerHTML = `<b>${p.w}×${p.h} · ${p.fps} fps · ${fmtDuration(p.dur)}</b><br>about ${fmtBytes(p.estBytes)}${cap} · ${audio}
-      ${p.mode.kind === '2pass' ? '<br><span class="muted small">Compressed harder to fit the size limit.</span>' : ''}
-      ${!p.cap ? '<br><span class="bad small">No size limit: over 250 MB will not embed in Discord.</span>' : ''}`;
+    const cap = presets.discord?.cap || 250e6;
+    const note = info.audio.length && !p.audioKbps ? '<div class="note bad">All audio muted</div>'
+      : !p.cap ? `<div class="note warn">Over ${esc(fmtBytes(cap))} will not embed in Discord</div>`
+      : p.mode.kind === '2pass' ? '<div class="note soft">Compressed harder to fit</div>' : '';
+    el.innerHTML = `<div class="main num">${p.w}×${p.h} · ${p.fps} fps · ${fmtDuration(p.dur)} · ≈ ${fmtBytes(p.estBytes)}</div>${note}`;
   } catch (e) {
-    if (seq === planSeq) el.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    if (seq === planSeq) el.innerHTML = `<div class="note bad">${esc(e.message)}</div>`;
   }
 }, 250);
 
+// ======================= shortcuts popover =======================
+{
+  const btn = $('#keysBtn'), pop = $('#keys');
+  const close = () => { pop.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+  btn.onclick = () => { pop.hidden = !pop.hidden; btn.setAttribute('aria-expanded', String(!pop.hidden)); };
+  document.addEventListener('pointerdown', (e) => { if (!pop.hidden && !pop.contains(e.target) && !btn.contains(e.target)) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden) { close(); btn.focus(); } });
+}
+
 // ======================= keyboard =======================
 document.addEventListener('keydown', (e) => {
-  if (e.target.closest?.('input, select, textarea') || e.ctrlKey || e.metaKey || e.altKey || !info) return;
+  if (e.target.closest?.('input, select, textarea') || e.ctrlKey || e.metaKey || e.altKey || !info || !edit) return;
+  const onButton = e.target.closest?.('button, summary, a');
   const step = e.shiftKey ? 1 : 1 / (info.fps || 30);
   const k = e.key.toLowerCase();
-  if (k === ' ') { e.preventDefault(); togglePlay(); }
+  if (k === ' ') { if (onButton) return; e.preventDefault(); togglePlay(); }
   else if (k === 'arrowleft') { e.preventDefault(); video.pause(); seek(video.currentTime - step); }
   else if (k === 'arrowright') { e.preventDefault(); video.pause(); seek(video.currentTime + step); }
   else if (k === 'home') { e.preventDefault(); seek(edit.start); }
@@ -452,18 +524,16 @@ document.addEventListener('keydown', (e) => {
 
 // ======================= export =======================
 function clipCard(c, big = false) {
-  return `<div class="${big ? 'result' : 'mini'}">
-    ${big ? `<b class="ok">Your clip is ready</b>
-      <span class="biglink">${esc(c.url)}</span>
-      <div class="row"><button class="primary" data-copy="${esc(c.url)}">Copy link</button><a href="${esc(c.url)}" target="_blank" rel="noopener">Open</a>
-      <span class="muted small">${fmtBytes(c.size)} · ${c.width}×${c.height}</span></div>
-      <div class="hint">Paste it in Discord. The embed can take a few seconds to show; bigger files take longer.</div>
-      ${c.hasThumb ? `<img src="/api/clips/${c.id}.jpg?${c.created}" alt="">` : ''}`
-    : `${c.hasThumb ? `<img src="/api/clips/${c.id}.jpg" alt="" loading="lazy">` : '<div class="ph"></div>'}
-      <div class="t"><div title="${esc(c.title)}">${esc(c.title)}</div>
-      <div class="small muted">${fmtDuration(c.duration)} · ${fmtBytes(c.size)}${c.gpu ? ' · GPU' : ''}</div></div>
-      <button class="small primary" data-copy="${esc(c.url)}">Copy</button>`}
-  </div>`;
+  if (big) return `<div class="result"><span class="badge ready">Ready</span>
+      <div class="link num">${esc(c.url)}</div>
+      <div class="row"><button class="primary" data-copy="${esc(c.url)}">${icon('link')}Copy link</button><a class="btn" href="${esc(c.url)}" target="_blank" rel="noopener">${icon('open')}Open</a>
+      <span class="meta num">${fmtBytes(c.size)} · ${c.width}×${c.height}</span></div>
+      ${c.hasThumb ? `<img src="/api/clips/${c.id}.jpg?${c.created}" alt="Thumbnail">` : ''}</div>`;
+  return `<div class="mini">
+    ${c.hasThumb ? `<img src="/api/clips/${c.id}.jpg" alt="" loading="lazy">` : '<div class="ph"></div>'}
+    <div class="t"><div title="${esc(c.title)}">${esc(c.title)}</div>
+    <div class="num">${fmtDuration(c.duration)} · ${fmtBytes(c.size)}</div></div>
+    <button class="small primary" data-copy="${esc(c.url)}">Copy</button></div>`;
 }
 async function renderExports() {
   const s = await api(base).catch(() => null); if (!s) return;
@@ -474,9 +544,9 @@ async function renderExports() {
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-copy]'); if (b) copy(b.dataset.copy); });
 
 $('#export').onclick = async () => {
-  const btn = $('#export'), out = $('#result');
-  btn.disabled = true;
-  out.innerHTML = '<div class="plan"><div class="row spread"><span id="jobText">starting…</span></div><div class="progress" style="margin-top:6px"><div id="jobBar"></div></div></div>';
+  const form = $('#exportForm'), out = $('#result');
+  form.disabled = true;
+  out.innerHTML = '<div class="job"><div class="row"><span class="num" id="jobText">starting…</span></div><div class="progress"><div id="jobBar"></div></div></div>';
   try {
     await api(base, { method: 'PATCH', body: { edit } });
     const job = await api(`${base}/export`, { method: 'POST', body: edit });
@@ -490,8 +560,8 @@ $('#export').onclick = async () => {
     navigator.clipboard?.writeText(clip.url).then(() => toast('Link copied - paste it in Discord'), () => {});
     renderExports();
   } catch (e) {
-    out.innerHTML = `<div class="plan bad">Export failed: ${esc(e.message)}</div>`;
-  } finally { btn.disabled = false; }
+    out.innerHTML = `<div class="failed">Export failed: ${esc(e.message)}</div>`;
+  } finally { form.disabled = false; }
 };
 
 // ======================= start =======================
@@ -512,9 +582,19 @@ async function load() {
   presets = status.presets;
   $('#gpuWrap').hidden = !status.gpu?.available;
   gpuDefault = !!status.gpu?.default;
-  $('#preset').innerHTML = Object.entries(presets).map(([k, p]) => `<option value="${k}">${esc(p.label)}</option>`).join('');
+  if (info.width && info.height) video.style.aspectRatio = `${info.width} / ${info.height}`;
+  $('#timeTotal').textContent = fmtTime(info.duration);
 
-  edit = normalize(source.edit);
+  // Re-editing a clip: /edit/<sid>?clip=<id> starts from the settings that clip was made with (if it has them).
+  let clipEdit = null, clipTitle = '';
+  const cid = new URLSearchParams(location.search).get('clip');
+  if (cid && /^[\w-]{1,40}$/.test(cid)) {
+    const c = await api(`/api/clips/${cid}`).catch(() => null);
+    if (c && c.edit && typeof c.edit === 'object' && c.sourceId === sid) { clipEdit = c.edit; clipTitle = c.title || ''; }
+  }
+  edit = normalize(clipEdit || source.edit);
+  if (!clipEdit && !source.edit) info.audio.forEach((a, i) => { if (hideable(i)) edit.tracks[i].muted = true; });   // new recording: start without the copies
+  renderSizes();
   setupAudioElements();
   peaks = await Promise.all(info.audio.map((a) => api(`${base}/peaks-${a.n}.json`).then((d) => d.peaks).catch(() => null)));
   video.addEventListener('loadedmetadata', () => { video.currentTime = Math.max(edit.start, video.currentTime || 0); overlay.remove(); });
@@ -524,11 +604,12 @@ async function load() {
   });
   loadVideo().catch(showError);
   setView(0, info.duration);
-  layout();
   fillFields();
+  layout();
   edit.tracks.forEach((t, i) => { if (t.level !== 'off') useLevel(i); });
   updatePlan();
   renderExports();
+  if (clipEdit) toast(`Loaded the settings of “${clipTitle}”`);
   requestAnimationFrame(frame);
 }
 // The recording itself if this browser can play its codec (most can play HEVC from OBS now); else (or if it

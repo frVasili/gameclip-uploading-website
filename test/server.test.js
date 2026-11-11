@@ -53,6 +53,9 @@ let alexPassword;
 test('front door: / redirects to /home, API needs a login', async () => {
   const r = await anon('/');
   assert.equal(r.status, 302); assert.equal(r.headers.get('location'), '/home');
+  assert.equal(r.headers.get('permissions-policy'), 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+  assert.equal(r.headers.get('cross-origin-opener-policy'), 'same-origin');
+  assert.equal(r.headers.get('strict-transport-security'), null, 'plain HTTP must not advertise HSTS');
   assert.equal((await anon('/home')).status, 200);
   assert.equal((await anon('/api/sources')).status, 401);
   assert.deepEqual((await anon('/api/me')).json.user, null);
@@ -68,6 +71,8 @@ test('pages link versioned assets that are cached forever; old/unversioned URLs 
   assert.equal(plain.headers.get('cache-control'), 'no-cache');
   assert.equal((await fetch(`${BASE}/static/v-0000000000/library.js`)).headers.get('cache-control'), 'no-cache');
   assert.equal((await anon('/account')).status, 200);
+  const again = await fetch(`${BASE}/home`, { headers: { 'If-None-Match': home.headers.get('etag') } });
+  assert.equal(again.status, 304, 'app pages use the rewritten HTML ETag');
 });
 
 test('login: wrong password refused, right one sets an HttpOnly cookie', async () => {
@@ -100,6 +105,16 @@ test('quota is checked before any data is sent', async () => {
   const r = await alex('/api/uploads', { method: 'POST', body: { name: 'big.mp4', size: 2e9 } });
   assert.equal(r.status, 413); assert.match(r.json.error, /storage limit/);
   assert.equal((await alex('/api/uploads', { method: 'POST', body: { name: 'x.exe', size: 10 } })).status, 400);
+});
+
+test('unfinished uploads reserve their declared quota', async () => {
+  const first = await alex('/api/uploads', { method: 'POST', body: { name: 'first.mp4', size: 600e6 } });
+  assert.equal(first.status, 201, first.text);
+  const second = await alex('/api/uploads', { method: 'POST', body: { name: 'second.mp4', size: 600e6 } });
+  assert.equal(second.status, 413); assert.match(second.json.error, /storage limit/);
+  const again = await alex('/api/uploads', { method: 'POST', body: { name: 'first.mp4', size: 600e6 } });
+  assert.equal(again.status, 201, again.text); assert.equal(again.json.id, first.json.id, 'the same file again continues the unfinished upload');
+  assert.equal((await alex(`/api/uploads/${first.json.id}`, { method: 'DELETE' })).status, 200);
 });
 
 async function upload(c, file, name) {
@@ -151,8 +166,18 @@ test('upload in pieces, prepare, export, public page; others cannot see it', { s
   await sam('/api/login', { method: 'POST', body: { name: 'Sam', password: created.json.password } });
   assert.equal((await sam(`/api/sources/${sid}`)).status, 404);
   assert.equal((await sam('/api/sources')).json.length, 0);
+  const poster = await alex(`/api/sources/${sid}/poster.jpg`);
+  assert.equal(poster.status, 200, poster.text); assert.equal(poster.headers.get('content-type'), 'image/jpeg');
+  assert.equal((await sam(`/api/sources/${sid}/poster.jpg`)).status, 404);
 
-  const job = await alex(`/api/sources/${sid}/export`, { method: 'POST', body: { start: 0.5, end: 3.5, title: 'E2E <clip>', preset: 'small' } });
+  const users = (await admin('/api/users')).json.users;
+  const alexUser = users.find((u) => u.name === 'Alex');
+  await admin(`/api/users/${alexUser.id}`, { method: 'PATCH', body: { quotaGB: 0 } });
+  const overQuota = await alex(`/api/sources/${sid}/export`, { method: 'POST', body: { start: 0.5, end: 3.5, preset: 'small' } });
+  assert.equal(overQuota.status, 413); assert.match(overQuota.json.error, /delete old recordings or clips/i);
+  await admin(`/api/users/${alexUser.id}`, { method: 'PATCH', body: { quotaGB: 1 } });
+
+  const job = await alex(`/api/sources/${sid}/export`, { method: 'POST', body: { start: 0.5, end: 3.5, title: 'E2E <clip>', preset: 'small', fadeIn: 1.25 } });
   assert.equal(job.status, 202, job.text);
   let j;
   for (let i = 0; i < 300; i++) { j = (await alex(`/api/jobs/${job.json.id}`)).json; if (j.state === 'done' || j.state === 'error') break; await new Promise((x) => setTimeout(x, 300)); }
@@ -161,6 +186,10 @@ test('upload in pieces, prepare, export, public page; others cannot see it', { s
   assert.equal(page.status, 200);
   assert.match(page.text, /og:video" content="http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9]{12}\.mp4"/);
   assert.match(page.text, /E2E &lt;clip&gt;/); assert.match(page.text, /by Alex/);
+  assert.ok(!page.text.includes('fadeIn'), 'the public page never exposes saved edit settings');
+  const saved = await alex(`/api/clips/${j.clipId}`);
+  assert.equal(saved.json.edit.fadeIn, 1.25, 'the cleaned edit is kept with the finished clip');
+  assert.equal((await alex(`/api/clips/${j.clipId}`, { method: 'PATCH', raw: '{' })).status, 400, 'bad API JSON is not a 500');
   const mp4 = await fetch(`${BASE}/${j.clipId}.mp4`, { headers: { Range: 'bytes=0-99' } });
   assert.equal(mp4.status, 206);
   assert.equal((await sam(`/api/clips/${j.clipId}`, { method: 'DELETE' })).status, 404, 'others cannot delete it');

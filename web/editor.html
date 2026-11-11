@@ -6,87 +6,110 @@
 <title>Edit clip</title>
 <link rel="icon" href="/static/favicon.svg">
 <link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/editor.css">
 <script type="module" src="/static/editor.js"></script>
 </head>
 <body>
 <header class="top"></header>
-<main>
-  <div class="editor">
-    <div class="left">
-      <section class="panel">
+<main class="ed-main">
+  <div class="ed">
+    <div class="ed-left">
+      <section class="panel stage">
         <div class="player">
           <video id="video" playsinline muted preload="auto"></video>
           <div class="fade" id="fadeOverlay"></div>
           <div class="overlay" id="overlay">Loading…</div>
         </div>
-        <div class="transport row">
-          <button class="play" id="play" title="Play / pause (Space)">▶ Play</button>
-          <span class="time" id="time">0:00.0 / 0:00.0</span>
-          <label class="inline"><input type="checkbox" id="loop" checked> Loop trim</label>
+        <div class="transport">
+          <button class="play" id="play" title="Play / pause (Space)"></button>
+          <span class="clock num" id="time" aria-live="off"><span id="timeNow">0:00.0</span><span class="of"> / </span><span id="timeTotal">0:00.0</span></span>
+          <label class="inline"><input type="checkbox" id="loop" checked> Loop</label>
           <span class="grow"></span>
           <button id="setStart" title="Start the clip at the playhead (I)">Set start <kbd>I</kbd></button>
           <button id="setEnd" title="End the clip at the playhead (O)">Set end <kbd>O</kbd></button>
-          <button id="setThumb" title="Use the frame at the playhead as the Discord thumbnail (T)">Thumbnail <kbd>T</kbd></button>
+          <button id="setThumb" title="Use the frame at the playhead as the thumbnail (T)">Thumbnail <kbd>T</kbd></button>
+          <span class="popwrap">
+            <button class="icon" id="keysBtn" title="Keyboard shortcuts" aria-label="Keyboard shortcuts" aria-expanded="false" aria-controls="keys"></button>
+            <div class="pop" id="keys" role="dialog" aria-label="Keyboard shortcuts" hidden>
+              <dl>
+                <dt><kbd>Space</kbd></dt><dd>Play / pause</dd>
+                <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>One frame</dd>
+                <dt><kbd>Shift</kbd> + <kbd>←</kbd> <kbd>→</kbd></dt><dd>One second</dd>
+                <dt><kbd>Home</kbd> <kbd>End</kbd></dt><dd>Jump to start / end</dd>
+                <dt><kbd>I</kbd> <kbd>O</kbd></dt><dd>Set start / end</dd>
+                <dt><kbd>T</kbd></dt><dd>Set thumbnail</dd>
+                <dt>Scroll</dt><dd>Zoom</dd>
+                <dt><kbd>Shift</kbd> + scroll</dt><dd>Pan</dd>
+              </dl>
+            </div>
+          </span>
         </div>
       </section>
 
-      <section class="panel">
-        <div class="row spread"><h2 style="margin:0">Trim</h2>
-          <div class="row"><button class="small" id="zoomOut" title="Zoom out">−</button><button class="small" id="zoomFit">Fit</button><button class="small" id="zoomIn" title="Zoom in">+</button><button class="small" id="zoomSel" title="Zoom to the trimmed part">Zoom to clip</button></div></div>
-        <div class="timeline-wrap" style="margin-top:10px"><canvas class="timeline" id="timeline"></canvas></div>
-        <div class="trimfields">
-          <div><label for="start">Start</label><input type="text" id="start" inputmode="decimal"></div>
-          <div><label for="end">End</label><input type="text" id="end" inputmode="decimal"></div>
-          <div><label>Length</label><div class="dur" id="dur">-</div></div>
-          <button id="resetTrim" title="Use the whole recording">Whole video</button>
+      <section class="panel tl" id="tl">
+        <div class="tl-top">
+          <h2>Timeline <span class="count num" id="trackCount"></span></h2>
+          <div class="zoom">
+            <button class="small icon" id="zoomOut" title="Zoom out" aria-label="Zoom out"></button>
+            <button class="small" id="zoomFit">Fit</button>
+            <button class="small icon" id="zoomIn" title="Zoom in" aria-label="Zoom in"></button>
+            <button class="small" id="zoomSel" title="Zoom to the trimmed part">Zoom to clip</button>
+          </div>
         </div>
-        <div class="hint">Drag the purple handles to trim · click or drag to move the playhead · scroll to zoom, Shift+scroll to pan ·
-          <kbd>Space</kbd> play · <kbd>←</kbd><kbd>→</kbd> one frame (<kbd>Shift</kbd> 1 s) · <kbd>Home</kbd>/<kbd>End</kbd> jump to start/end</div>
-      </section>
-
-      <section class="panel">
-        <h2>Audio</h2>
-        <div id="tracks"></div>
-        <div class="hint warn" id="dupHint" hidden></div>
-        <div class="hint" id="mixHint">Discord only plays one audio track, so these are mixed together. Solo = mute all the others.</div>
-        <div class="hint"><b>Even out</b> fixes volume differences <i>inside</i> a track (a quiet mic next to loud friends): Light keeps it natural, Strong makes everyone about equally loud but also squashes loud game moments. You hear it in the preview.</div>
-        <div class="row" style="margin-top:10px">
-          <label class="inline" title="One constant volume change so the clip is as loud as typical YouTube/Discord videos (-14 LUFS). Doesn't change the balance."><input type="checkbox" id="normalize" checked> Set the whole clip to standard volume <span class="muted small">(as loud as typical YouTube/Discord videos; applied on export)</span></label>
-          <span class="grow"></span>
-          <button class="small" id="matchLevels" title="Measure each track and set the sliders so they're about equally loud">Match track levels</button>
+        <div class="tl-body" id="tlBody">
+          <div class="heads" id="laneHeads"></div>
+          <div class="cwrap"><canvas class="timeline" id="timeline" aria-label="Timeline: waveforms, trim handles and playhead"></canvas></div>
         </div>
-        <div class="fades">
-          <div><label for="fadeIn">Fade in (seconds)</label><input type="number" id="fadeIn" min="0" max="10" step="0.1" value="0"></div>
-          <div><label for="fadeOut">Fade out (seconds)</label><input type="number" id="fadeOut" min="0" max="10" step="0.1" value="0"></div>
+        <div class="duprow" id="dupRow" hidden></div>
+        <div class="bar">
+          <div class="grp">
+            <div class="f w86"><label for="start">Start</label><input type="text" class="num" id="start" inputmode="decimal"></div>
+            <div class="f w86"><label for="end">End</label><input type="text" class="num" id="end" inputmode="decimal"></div>
+            <div class="f w86"><label>Length</label><output class="num field" id="dur">-</output></div>
+            <button id="resetTrim" title="Use the whole recording">Whole video</button>
+          </div>
+          <div class="grp">
+            <div class="f w64"><label for="fadeIn">Fade in</label><input type="number" class="num" id="fadeIn" min="0" max="10" step="0.1" value="0" title="Seconds"></div>
+            <div class="f w64"><label for="fadeOut">Fade out</label><input type="number" class="num" id="fadeOut" min="0" max="10" step="0.1" value="0" title="Seconds"></div>
+            <label class="inline sw"><input type="checkbox" id="videoFade"> Fade picture</label>
+          </div>
+          <div class="grp end">
+            <label class="inline sw" title="One constant volume change to -14 LUFS, like typical YouTube and Discord videos. Applied on export."><input type="checkbox" id="normalize" checked> Standard volume</label>
+            <button id="matchLevels" title="Measure each track and set the sliders so they are about equally loud">Match levels</button>
+          </div>
         </div>
-        <label class="inline" style="margin-top:10px"><input type="checkbox" id="videoFade"> Also fade the picture from/to black</label>
       </section>
     </div>
 
-    <div class="right">
-      <section class="panel">
+    <aside class="ed-right">
+      <section class="panel exp">
         <h2>Export</h2>
-        <label for="title">Title (shown in the Discord embed)</label>
-        <input type="text" id="title" maxlength="200">
-        <label for="preset">Size</label>
-        <select id="preset"></select>
-        <div class="row" style="gap:10px">
-          <div class="grow"><label for="resolution">Resolution</label>
-            <select id="resolution"><option value="auto">Auto (best for the size)</option><option value="source">Original</option>
-              <option value="2160">2160p</option><option value="1440">1440p</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option></select></div>
-          <div class="grow"><label for="fps">Frame rate</label>
-            <select id="fps"><option value="source">Original</option><option value="60">60 fps</option><option value="30">30 fps</option></select></div>
-        </div>
-        <label class="inline" id="gpuWrap" style="margin-top:12px" hidden title="Encodes on the graphics card: much faster, but needs more MB for the same quality"><input type="checkbox" id="gpu"> Fast GPU encode <span class="muted small">(quicker, slightly lower quality)</span></label>
-        <div class="plan" id="plan">…</div>
-        <button class="primary export-btn" id="export">Export &amp; get link</button>
-        <div id="result"></div>
+        <fieldset id="exportForm">
+          <label for="title">Title</label>
+          <input type="text" id="title" maxlength="200">
+          <label id="sizeLabel">Size</label>
+          <div class="sizes" id="sizes" role="radiogroup" aria-labelledby="sizeLabel"></div>
+          <div class="summary" id="plan" aria-live="polite">…</div>
+          <details class="more">
+            <summary>More options</summary>
+            <div class="two">
+              <div><label for="resolution">Resolution</label>
+                <select id="resolution"><option value="auto">Auto</option><option value="source">Original</option>
+                  <option value="2160">2160p</option><option value="1440">1440p</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option></select></div>
+              <div><label for="fps">Frame rate</label>
+                <select id="fps"><option value="source">Original</option><option value="60">60 fps</option><option value="30">30 fps</option></select></div>
+            </div>
+            <label class="inline gpu" id="gpuWrap" hidden title="Encodes on the graphics card: much faster, slightly lower quality for the same size"><input type="checkbox" id="gpu"> Fast GPU encode</label>
+          </details>
+          <button class="go big" id="export">Export &amp; get link</button>
+        </fieldset>
+        <div id="result" aria-live="polite"></div>
       </section>
       <section class="panel" id="exportsPanel" hidden>
-        <h2>Clips from this video</h2>
+        <h2>Clips from this recording</h2>
         <div class="list" id="exports"></div>
       </section>
-    </div>
+    </aside>
   </div>
 </main>
 </body>

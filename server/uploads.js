@@ -42,12 +42,21 @@ export function startUpload(user, { name, size }) {
   size = Number(size);
   if (!(size > 0)) throw fail(400, 'empty file');
   if (size > config.maxUploadBytes) throw fail(413, `the file is larger than ${(config.maxUploadBytes / 1e9).toFixed(0)} GB`);
+  // Reserve all promised bytes: a sequence of empty upload records must not overbook disk or a user's quota.
+  const unfinished = fs.readdirSync(store.UPLOADS).filter((f) => f.endsWith('.json')).map((f) => store.readJson(path.join(store.UPLOADS, f))).filter(Boolean);
+  const remaining = (u) => { const total = Number(u.size), received = Number(u.received || 0); return Number.isFinite(total) ? Math.max(0, total - (Number.isFinite(received) ? received : 0)) : 0; };
+  // The same file again (same owner, name and size), e.g. from another browser or after site data was cleared:
+  // continue that upload instead of holding its space twice.
+  const same = unfinished.find((u) => u.owner === user.id && u.name === name && Number(u.size) === size && store.UPLOAD_ID.test(u.id || ''));
+  if (same) { const u = getUpload(same.id); if (u) { u.updated = Date.now(); saveUpload(u); return u; } }
+  const reserved = unfinished.reduce((n, u) => n + remaining(u), 0);
   const free = store.diskFree();
-  if (free !== null && free - size < config.minFreeBytes) throw fail(507, 'not enough disk space on the server');
+  if (free !== null && free - reserved - size < config.minFreeBytes) throw fail(507, 'not enough disk space on the server');
   if (!user.admin) {
     const used = store.usageByOwner(true)[user.id] || 0;
-    if (used + size > user.quota) {
-      throw fail(413, `this would go over your storage limit (${(used / 1e9).toFixed(1)} of ${(user.quota / 1e9).toFixed(0)} GB used). Delete old uploads or ask the admin for more space.`);
+    const ownReserved = unfinished.filter((u) => u.owner === user.id).reduce((n, u) => n + remaining(u), 0);
+    if (used + ownReserved + size > user.quota) {
+      throw fail(413, `this would go over your storage limit (${((used + ownReserved) / 1e9).toFixed(1)} of ${(user.quota / 1e9).toFixed(0)} GB used or held by unfinished uploads). Delete old uploads or ask the admin for more space.`);
     }
   }
   const u = { id: store.randomId(20), owner: user.id, name, ext, size, chunk: config.chunkBytes, pieces: [], received: 0, created: Date.now(), updated: Date.now() };

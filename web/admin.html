@@ -4,67 +4,71 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Users</title>
+<title>Account</title>
 <link rel="icon" href="/static/favicon.svg">
 <link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/admin.css">
 <script type="module" src="/static/admin.js"></script>
 </head>
 <body>
 <header class="top"></header>
 <main>
-  <div class="stats" id="stats"></div>
+  <!-- admin -->
+  <div id="adminView" hidden>
+    <div class="tiles" id="stats"></div>
 
-  <h2 class="section" id="addHeading">Add someone</h2>
-  <form class="panel" id="addForm">
-    <div class="form-row">
-      <div><label for="newName">Name</label><input type="text" id="newName" maxlength="40" placeholder="e.g. Alex" required></div>
-      <div><label for="newQuota">Storage limit (GB)</label><input type="number" id="newQuota" min="0" step="1"></div>
-      <div><label for="newPw">Password <span class="muted">(leave empty to generate a strong one)</span></label><input type="text" id="newPw" autocomplete="off" placeholder="generated"></div>
-      <button class="primary" type="submit">Create</button>
+    <h2 class="section">People <span class="count" id="userCount">0</span></h2>
+    <div class="panel tablewrap">
+      <table class="users">
+        <thead><tr><th>Name</th><th class="hide-sm">Uploads / clips</th><th>Storage</th><th class="hide-sm">Last sign-in</th><th><span class="sr">Actions</span></th></tr></thead>
+        <tbody id="users"></tbody>
+      </table>
     </div>
-    <div class="hint">They sign in with this name and password. You'll see a generated password once: send it to them privately,
-      or use an invite link below and let them choose their own.</div>
-    <div id="newResult"></div>
-  </form>
+    <p class="adminpw">The admin password is set on the server (<span class="mono">ADMIN_PASSWORD</span>).</p>
 
-  <h2 class="section" id="inviteHeading">Invite links <span class="count" id="inviteCount">0</span></h2>
-  <div class="panel" id="invitePanel">
-    <form id="inviteForm">
-      <div class="form-row two">
-        <div><label for="invQuota">Storage limit (GB)</label><input type="number" id="invQuota" min="0" step="1"></div>
-        <div><label for="invNote">Note <span class="muted">(optional, only you see it)</span></label><input type="text" id="invNote" maxlength="100" placeholder="e.g. for Sam"></div>
-        <button class="primary" type="submit">Create invite link</button>
-      </div>
-    </form>
-    <div class="hint">The link works once and expires in 7 days. Whoever opens it picks their own name and password.</div>
-    <div id="inviteResult"></div>
-    <table class="users" style="margin-top:8px"><tbody id="invites"></tbody></table>
+    <div class="twin">
+      <section class="panel">
+        <h2>Add someone</h2>
+        <form id="addForm">
+          <div class="fields">
+            <div><label for="newName">Name</label><input type="text" id="newName" maxlength="40" required></div>
+            <div><label for="newQuota">Storage limit (GB)</label><input type="number" id="newQuota" min="0" step="1"></div>
+            <div class="wide"><label for="newPw">Password</label><input type="text" id="newPw" autocomplete="off" placeholder="generated if empty"></div>
+          </div>
+          <button class="primary" type="submit">Create</button>
+        </form>
+        <div id="newResult"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Invite links <span class="count" id="inviteCount">0</span></h2>
+        <form id="inviteForm">
+          <div class="fields">
+            <div><label for="invQuota">Storage limit (GB)</label><input type="number" id="invQuota" min="0" step="1"></div>
+            <div><label for="invNote">Note</label><input type="text" id="invNote" maxlength="100" placeholder="e.g. for Sam"></div>
+          </div>
+          <button class="primary" type="submit">Create invite link</button>
+        </form>
+        <div id="inviteResult"></div>
+        <table class="invites"><tbody id="invites"></tbody></table>
+      </section>
+    </div>
   </div>
 
-  <h2 class="section" id="pwHeading" hidden>Change password</h2>
-  <div class="panel" id="pwPanel" hidden>
-    <form id="pwForm">
-      <input type="text" autocomplete="username" id="pwUser" hidden>
-      <div class="form-row three">
-        <div><label for="curPw">Current password</label><input type="password" id="curPw" autocomplete="current-password" required></div>
-        <div><label for="newPw1">New password</label><input type="password" id="newPw1" autocomplete="new-password" minlength="8" maxlength="200" required></div>
-        <div><label for="newPw2">Repeat new password</label><input type="password" id="newPw2" autocomplete="new-password" minlength="8" maxlength="200" required></div>
+  <!-- everyone else -->
+  <div id="selfView" class="selfview" hidden>
+    <section class="panel me" id="meCard"></section>
+    <section class="panel">
+      <h2>Change password</h2>
+      <form id="pwForm">
+        <input type="text" autocomplete="username" id="pwUser" hidden>
+        <label for="curPw">Current password</label><input type="password" id="curPw" autocomplete="current-password" required>
+        <label for="newPw1">New password</label><input type="password" id="newPw1" autocomplete="new-password" minlength="8" maxlength="200" placeholder="At least 8 characters" required>
+        <label for="newPw2">Repeat new password</label><input type="password" id="newPw2" autocomplete="new-password" minlength="8" maxlength="200" required>
         <button class="primary" type="submit">Change</button>
-      </div>
-    </form>
-    <div class="hint">At least 8 characters. Your other devices are signed out; this one stays signed in.</div>
+      </form>
+    </section>
   </div>
-  <div class="panel" id="adminPwNote" hidden>The admin password is set on the server (<span class="mono">ADMIN_PASSWORD</span>). Change it there and restart.</div>
-
-  <h2 class="section"><span id="peopleTitle">People</span> <span class="count" id="userCount">0</span></h2>
-  <div class="panel" style="padding:6px 8px;overflow-x:auto">
-    <table class="users">
-      <thead><tr><th>Name</th><th>Uploads / clips</th><th>Storage</th><th class="hide-sm">Last sign-in</th><th></th></tr></thead>
-      <tbody id="users"></tbody>
-    </table>
-  </div>
-  <p class="hint" id="peopleHint">Deleting someone asks whether to keep their clips online (they become yours) or delete everything they uploaded.
-    Disabling signs them out and blocks their sign-in; their clips stay online.</p>
 </main>
 </body>
 </html>

@@ -12,7 +12,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { config } from './config.js';
 import * as auth from './auth.js';
-import { handleApi } from './api.js';
+import { handleApi, userError } from './api.js';
 import { handleClipPage, notFoundPage } from './pages.js';
 import { send, json, sendFile, readBody, TYPES } from './http.js';
 
@@ -22,9 +22,11 @@ const BASE_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'same-origin',
   'X-Frame-Options': 'DENY',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  'Cross-Origin-Opener-Policy': 'same-origin',
 };
 // pages of the app itself: only our own scripts; media/blob for the editor
-const APP_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+const APP_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const PAGES = { '/home': 'home.html', '/admin': 'admin.html', '/account': 'admin.html', '/invite': 'invite.html' };
 
 // Versioned asset URLs. CDNs (Cloudflare's default "Browser Cache TTL" is 4 h) and browsers may keep scripts
@@ -42,7 +44,10 @@ function sendPage(req, res, file) {
     html = Buffer.from(fs.readFileSync(path.join(STATIC_DIR, file), 'utf8').replace(/(["'])\/static\//g, `$1/static/v-${VERSION}/`));
     pageCache.set(file, html);
   }
-  return send(res, 200, html, 'text/html; charset=utf-8', { 'Cache-Control': 'no-cache', 'Content-Security-Policy': APP_CSP });
+  const etag = `"${crypto.createHash('sha256').update(html).digest('hex')}"`;
+  const headers = { 'Cache-Control': 'no-cache', 'Content-Security-Policy': APP_CSP, ETag: etag };
+  if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
+  return send(res, 200, html, 'text/html; charset=utf-8', headers);
 }
 
 // small JSON body for the public auth endpoints; bad or oversized input counts as empty
@@ -52,6 +57,7 @@ async function smallBody(req) {
 
 async function handle(req, res) {
   for (const [k, v] of Object.entries(BASE_HEADERS)) res.setHeader(k, v);
+  if (auth.isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
   if (req.url === '/healthz') return send(res, 200, 'ok', 'text/plain', { 'Cache-Control': 'no-store' }); // container health check (any Host)
   const host = String(req.headers.host || '').toLowerCase();
   if (config.allowedHosts.length && !config.allowedHosts.includes(host)) return send(res, 421, 'unknown host');
@@ -101,6 +107,7 @@ async function handle(req, res) {
 
 const server = http.createServer((req, res) => {
   Promise.resolve().then(() => handle(req, res)).catch((err) => {
+    if (!res.headersSent && Number.isInteger(err?.status)) return json(res, err.status, { error: userError(err.message) || 'request failed' });
     console.error(`${req.method} ${req.url}:`, err);
     if (!res.headersSent) { res.writeHead(500, { 'Content-Type': 'text/plain' }); res.end('internal error'); } else res.destroy();
   });

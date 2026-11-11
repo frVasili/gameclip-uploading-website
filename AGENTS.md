@@ -21,7 +21,12 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
 - `server/pages.js`: anonymous watch pages with Open Graph video tags, access log (no IPs).
 - `server/store.js`: files under `DATA_DIR`; ids; usage per owner.
 - `web/`: `home.html` + `library.js` (sign-in, upload, library), `editor.html` + `editor.js`, `admin.html` +
-  `admin.js`, shared `common.js` and `app.css`. No framework, no build, no external requests (CSP enforces it).
+  `admin.js`, `invite.html` + `invite.js`, shared `common.js` (API calls, header, icons, dialogs `ask`/`confirmDialog`/
+  `promptDialog`, popover `menu`, storage `blocks`) and `app.css` (the design system: glass panels, gel buttons,
+  switches, badges; page rules in `library.css`, `editor.css`, `admin.css`). Fonts are self-hosted `.woff2` files
+  (docs/font-licenses.md). No framework, no build, no external requests (CSP enforces it).
+  UI rules: no grey helper paragraphs (use structure, defaults, labels, `title` tooltips); no `confirm()`/`prompt()`
+  (use the dialogs); numbers and timecodes in `.num`.
   Pages are served with `/static/v-<hash>/` asset URLs (index.js `VERSION`, a hash of web/) cached as immutable,
   because CDNs (Cloudflare's default Browser Cache TTL is 4 h) override "no-cache" on scripts. Keep links to
   assets in HTML as `/static/<file>`: the server rewrites them; JS modules import each other relatively.
@@ -57,6 +62,8 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
 - Run `npm test` before committing (unit tests + end-to-end test; the e2e upload/export part needs ffmpeg).
   Use `node --check` for quick syntax checks. Before heavy work (big encodes, many test exports), check the machine isn't busy.
 - Keep `docs/API.md`, `.env.example` and the README in sync with code changes.
+- Delegating to subagents or other models is up to your judgement: hand off bounded work (searches, test runs,
+  mechanical edits) to a smaller, cheaper model when it can do it well, and keep hard or context-heavy work yourself.
 - Releasing: push to `main` -> GitHub Actions runs the tests, then builds and publishes
   `ghcr.io/frvasili/gameclip-uploading-website:latest` (amd64 + arm64). Deployments that pull `:latest` pick it up.
 
