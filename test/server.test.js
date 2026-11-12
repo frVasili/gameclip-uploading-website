@@ -192,6 +192,11 @@ test('upload in pieces, prepare, export, public page; others cannot see it', { s
   assert.equal((await alex(`/api/clips/${j.clipId}`, { method: 'PATCH', raw: '{' })).status, 400, 'bad API JSON is not a 500');
   const mp4 = await fetch(`${BASE}/${j.clipId}.mp4`, { headers: { Range: 'bytes=0-99' } });
   assert.equal(mp4.status, 206);
+  // video and audio are encoded side by side and joined: both streams there, both as long as the trim (0.5-3.5 s)
+  const pr = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,duration', '-of', 'json', `${BASE}/${j.clipId}.mp4`], { encoding: 'utf8' });
+  const streams = JSON.parse(pr.stdout).streams;
+  assert.deepEqual(streams.map((x) => x.codec_type).sort(), ['audio', 'video']);
+  for (const x of streams) assert.ok(Math.abs(Number(x.duration) - 3) < 0.1, `${x.codec_type} lasts ${x.duration} s`);
   const dl = await fetch(`${BASE}/${j.clipId}.mp4?download`, { method: 'HEAD' });
   assert.equal(dl.status, 200);
   assert.match(dl.headers.get('content-disposition'), /^attachment; filename="E2E clip\.mp4"; filename\*=UTF-8''E2E%20clip\.mp4$/);

@@ -62,7 +62,11 @@ test('audio graph: leveling per track, constant-gain normalization, true-peak li
   assert.ok(!/loudnorm/.test(g), 'no dynamic loudnorm in the render graph');
   const plain = filters(info, e, p, null);
   assert.ok(!/volume=[-0-9.]+dB/.test(plain)); assert.match(plain, /alimiter=limit=0\.97/);
-  assert.match(filters(info, e, p, 'measure'), /loudnorm=.*print_format=json\[a\]$/);
+  assert.match(filters(info, e, p, 'measure'), /ebur128=framelog=quiet\[a\]$/);
+  // video and audio can be built as separate graphs (they encode side by side)
+  const v = filters(info, e, p, { I: -20 }, false, 'video'), a = filters(info, e, p, { I: -20 }, false, 'audio');
+  assert.match(v, /\[v\]$/); assert.ok(!v.includes('[a]') && !v.includes('0:a:'));
+  assert.ok(!a.includes('0:v:') && !a.includes('[v]')); assert.equal(a, g.split(';').slice(1).join(';'));
 });
 test('normalization gain is capped', () => {
   assert.equal(normGain(-60), 24); assert.equal(normGain(10), -24); assert.equal(normGain(-14), 0);

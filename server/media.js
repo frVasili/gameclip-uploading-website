@@ -54,26 +54,27 @@ export const LEVELING = {
 };
 // Whole-clip loudness target: -14 LUFS integrated (YouTube/Spotify level), true peak -1.5 dBTP.
 export const LOUDNESS = { I: -14, TP: -1.5, LRA: 11 };
-const loudnormArgs = `I=${LOUDNESS.I}:TP=${LOUDNESS.TP}:LRA=${LOUDNESS.LRA}`;
 export const normGain = (measuredI) => Math.max(-30, Math.min(24, LOUDNESS.I - measuredI)); // dB, capped
 
 const trackPrep = 'aresample=48000:async=1:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo';
 const levelFilter = (level) => (LEVELING[level] ? `,${LEVELING[level]}` : '');
 
-// loudnorm's analysis prints a JSON block at the end of stderr
-function parseLoudnorm(stderr) {
-  const m = /\{[^{}]*"input_i"[^{}]*\}/s.exec(stderr);
+// Integrated loudness (EBU R128 / BS.1770, LUFS) via ffmpeg's ebur128 filter, read from its summary on stderr.
+// (loudnorm's analysis gives the same number, -25.22 vs -25.2 on a test lecture, but also measures true peak at
+// 192 kHz, which made it ~13x slower; only the integrated loudness is used, the limiter takes care of peaks.)
+const MEASURE = 'ebur128=framelog=quiet';
+function parseLoudness(stderr) {
+  const m = /Integrated loudness:\s*I:\s*(-?(?:\d+(?:\.\d+)?|inf))\s*LUFS/i.exec(stderr);
   if (!m) throw new Error('loudness analysis printed no result');
-  const j = JSON.parse(m[0]);
-  const num = (k) => Number(j[k]);
-  return { I: num('input_i'), TP: num('input_tp'), LRA: num('input_lra'), thresh: num('input_thresh'), offset: num('target_offset') };
+  const I = Number(m[1].replace(/inf$/i, 'Infinity'));
+  return { I: I > -70 ? I : -Infinity };   // ebur128 reports silence as -70
 }
 
 // Integrated loudness (LUFS) of one source track, optionally after leveling. -Infinity for silence.
 export async function measureTrack(src, n, level = 'off') {
   const err = await run(FFMPEG, ['-hide_banner', '-nostdin', '-nostats', ...SAFE, '-i', src, '-map', `0:a:${n}`, '-vn', '-sn',
-    '-af', `${trackPrep}${levelFilter(level)},loudnorm=${loudnormArgs}:print_format=json`, '-f', 'null', '-'], { stderr: true });
-  return parseLoudnorm(err).I;
+    '-af', `${trackPrep}${levelFilter(level)},${MEASURE}`, '-f', 'null', '-'], { stderr: true });
+  return parseLoudness(err).I;
 }
 
 // Editor preview of a leveled track (the browser can't run dynaudnorm), cached next to the plain one.
@@ -318,7 +319,8 @@ export function plan(info, edit) {
 
 // gpu: false (all on the CPU), 'upload' (CPU filters, frames go to the GPU encoder) or 'full' (frames stay on the
 // GPU from decoding to encoding; no video fades then, they only exist as CPU filters)
-export function filters(info, edit, p, loud = null, gpu = false) {
+// which: 'both', 'video' (just [v]) or 'audio' (just [a]); loud === 'measure' gives the audio measuring graph.
+export function filters(info, edit, p, loud = null, gpu = false, which = 'both') {
   const vf = [];
   if (gpu === 'full') vf.push(`scale_vaapi=w=${p.w}:h=${p.h}:format=nv12`);
   else if (p.w !== info.width || p.h !== info.height) vf.push(`scale=${p.w}:${p.h}:flags=lanczos`);
@@ -327,7 +329,8 @@ export function filters(info, edit, p, loud = null, gpu = false) {
   if (edit.videoFade && fi) vf.push(`fade=t=in:st=0:d=${fi}`);
   if (edit.videoFade && fo) vf.push(`fade=t=out:st=${Math.max(0, p.dur - fo).toFixed(3)}:d=${fo}`);
   if (gpu !== 'full') vf.push(gpu ? 'format=nv12,hwupload' : 'format=yuv420p');
-  const parts = [`[0:v:0]${vf.join(',')}[v]`];
+  const parts = which === 'audio' && loud !== 'measure' ? [] : [`[0:v:0]${vf.join(',')}[v]`];
+  if (which === 'video') return parts.join(';');
   if (p.activeTracks.length) {
     const labels = p.activeTracks.map((t, i) => {
       const vol = Math.min(4, Math.max(0, Number(t.volume)));
@@ -335,7 +338,7 @@ export function filters(info, edit, p, loud = null, gpu = false) {
       return `[a${i}]`;
     });
     let chain = labels.length > 1 ? `${labels.join('')}amix=inputs=${labels.length}:normalize=0:duration=longest` : `${labels[0]}anull`;
-    if (loud === 'measure') return `${parts.slice(1).join(';')};${chain},loudnorm=${loudnormArgs}:print_format=json[a]`;
+    if (loud === 'measure') return `${parts.slice(1).join(';')};${chain},${MEASURE}[a]`;
     // one constant gain to the target loudness. (Not loudnorm's own second pass: it silently switches to
     // dynamic compression whenever the gain would push peaks over the limit, which changed the balance.)
     if (loud) chain += `,volume=${normGain(loud.I).toFixed(2)}dB`;
@@ -394,40 +397,48 @@ export async function render(src, info, edit, outFile, tmpDir, onProgress = () =
   if (edit.gpu) await recheckGpu();
   const useGpu = !!edit.gpu && gpu.available;
   const t0 = Date.now();
-  let loud = null;
-  if (edit.normalize !== false && p.activeTracks.length) {
-    // pass 0: measure the loudness of the exact mix (audio only, quick)
-    const err = await run(FFMPEG, ['-hide_banner', '-nostdin', '-nostats', '-ss', edit.start.toFixed(3), '-t', p.dur.toFixed(3), ...SAFE, '-i', src,
-      '-filter_complex', filters(info, edit, p, 'measure'), '-map', '[a]', '-f', 'null', '-'], { stderr: true });
-    const m = parseLoudnorm(err);
-    if (Number.isFinite(m.I) && m.I > -70) loud = m;   // silence: leave it alone
-    onProgress(0.05);
-  }
+  // Video and audio are made at the same time, into two temporary files that are joined at the end (no re-encode):
+  // the audio side (measure the loudness of the exact mix, then encode it) runs on the CPU while the video encodes.
+  const tmpV = path.join(tmpDir, `v-${path.basename(outFile)}`), tmpA = path.join(tmpDir, `a-${path.basename(outFile, '.mp4')}.m4a`);
+  const cut = () => ['-ss', edit.start.toFixed(3), '-t', p.dur.toFixed(3), ...SAFE, '-i', src];
+  let loud = null, audioSecs = 0;
+  const audioSide = async () => {
+    if (!p.activeTracks.length) return;
+    const ta = Date.now();
+    if (edit.normalize !== false) {
+      const err = await run(FFMPEG, ['-hide_banner', '-nostdin', '-nostats', ...cut(), '-filter_complex', filters(info, edit, p, 'measure'), '-map', '[a]', '-f', 'null', '-'], { stderr: true });
+      const m = parseLoudness(err);
+      if (Number.isFinite(m.I)) loud = m;   // silence: leave it alone
+    }
+    await run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-v', 'error', ...cut(), '-filter_complex', filters(info, edit, p, loud, false, 'audio'),
+      '-map', '[a]', '-c:a', 'aac', '-b:a', `${p.audioKbps}k`, '-ac', '2', '-f', 'mp4', tmpA]);
+    audioSecs = (Date.now() - ta) / 1000;
+  };
   // GPU: decode on the GPU too when it can (much less work for the CPU), else decode on the CPU and upload
   let gpuMode = !useGpu ? false : !edit.videoFade && FULL_GPU_CODECS.has(info.vcodec) && info.pixFmt === 'yuv420p' ? 'full' : 'upload';
   const preset = p.dur <= 120 ? 'medium' : p.dur <= 600 ? 'fast' : 'veryfast';
   const hwIn = () => gpuMode === 'full' ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-hwaccel', 'vaapi', '-hwaccel_device', 'va', '-hwaccel_output_format', 'vaapi', '-filter_hw_device', 'va']
     : gpuMode ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-filter_hw_device', 'va'] : [];
-  const input = () => ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', ...hwIn(), '-ss', edit.start.toFixed(3), '-t', p.dur.toFixed(3), ...SAFE, '-i', src];
+  const input = () => ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', ...hwIn(), ...cut()];
   const common = () => gpuMode
-    ? ['-filter_complex', filters(info, edit, p, loud, gpuMode), '-map', '[v]', '-c:v', 'h264_vaapi', '-profile:v', 'high', '-g', String(p.fps * 2)]
-    : ['-filter_complex', filters(info, edit, p, loud, false), '-map', '[v]', '-c:v', 'libx264', '-preset', preset, '-profile:v', 'high', '-g', String(p.fps * 2), '-threads', THREADS];
-  const audio = p.activeTracks.length ? ['-map', '[a]', '-c:a', 'aac', '-b:a', `${p.audioKbps}k`, '-ac', '2'] : ['-an'];
-  const meta = ['-map_metadata', '-1', '-map_chapters', '-1', '-metadata', `title=${(edit.title || '').slice(0, 200)}`, '-movflags', '+faststart'];
+    ? ['-filter_complex', filters(info, edit, p, null, gpuMode, 'video'), '-map', '[v]', '-c:v', 'h264_vaapi', '-profile:v', 'high', '-g', String(p.fps * 2)]
+    : ['-filter_complex', filters(info, edit, p, null, false, 'video'), '-map', '[v]', '-c:v', 'libx264', '-preset', preset, '-profile:v', 'high', '-g', String(p.fps * 2), '-threads', THREADS];
+  const audio = ['-an'];   // the audio is made on the side
+  const meta = ['-f', 'mp4'];
   const passlog = path.join(tmpDir, `x264-${path.basename(outFile)}`);
 
   const twoPass = async (kbps, from, span) => {
     const rate = ['-b:v', `${kbps}k`, '-maxrate', `${Math.round(kbps * 1.5)}k`, '-bufsize', `${kbps * 2}k`];
     await run(FFMPEG, [...input(), ...common(), ...rate, '-pass', '1', '-passlogfile', passlog, ...audio, '-f', 'mp4', '/dev/null'],
       { duration: p.dur, onProgress: (f) => onProgress(from + f * span * 0.4) });
-    await run(FFMPEG, [...input(), ...common(), ...rate, '-pass', '2', '-passlogfile', passlog, ...audio, ...meta, outFile],
+    await run(FFMPEG, [...input(), ...common(), ...rate, '-pass', '2', '-passlogfile', passlog, ...audio, ...meta, tmpV],
       { duration: p.dur, onProgress: (f) => onProgress(from + span * 0.4 + f * span * 0.6) });
   };
 
   // GPU: one pass at a target bitrate (VAAPI has no 2-pass); the size check below tightens it if needed
   const gpuPass = async (kbps, from, span) => {
     const rate = kbps ? ['-rc_mode', 'VBR', '-b:v', `${kbps}k`, '-maxrate', `${Math.round(kbps * 1.5)}k`, '-bufsize', `${kbps * 2}k`] : ['-rc_mode', 'CQP', '-qp', '20'];
-    const go = () => run(FFMPEG, [...input(), ...common(), ...rate, ...audio, ...meta, outFile], { duration: p.dur, onProgress: (f) => onProgress(from + f * span) });
+    const go = () => run(FFMPEG, [...input(), ...common(), ...rate, ...audio, ...meta, tmpV], { duration: p.dur, onProgress: (f) => onProgress(from + f * span) });
     try { await go(); } catch (e) {
       if (gpuMode !== 'full') throw e;
       console.error('GPU decoding failed, decoding on the CPU:', e.message);
@@ -435,28 +446,42 @@ export async function render(src, info, edit, outFile, tmpDir, onProgress = () =
     }
   };
 
-  try {
+  const videoSide = async () => {
     if (useGpu) {
-      await gpuPass(p.cap ? Math.round(p.mode.kind === '2pass' ? p.mode.kbps * 0.97 : Math.min(p.ceiling, p.budget)) : Math.round(p.mode.maxrate * 0.75), 0.05, 0.85);   // GPU best quality: VBR below the CPU's peak cap
+      await gpuPass(p.cap ? Math.round(p.mode.kind === '2pass' ? p.mode.kbps * 0.97 : Math.min(p.ceiling, p.budget)) : Math.round(p.mode.maxrate * 0.75), 0, 0.92);   // GPU best quality: VBR below the CPU's peak cap
     } else if (p.mode.kind === 'crf') {
       const rate = ['-crf', String(p.mode.crf), ...(p.mode.maxrate ? ['-maxrate', `${p.mode.maxrate}k`, '-bufsize', `${p.mode.maxrate * 2}k`] : [])];
-      await run(FFMPEG, [...input(), ...common(), ...rate, ...audio, ...meta, outFile], { duration: p.dur, onProgress: (f) => onProgress(0.05 + f * 0.85) });
+      await run(FFMPEG, [...input(), ...common(), ...rate, ...audio, ...meta, tmpV], { duration: p.dur, onProgress: (f) => onProgress(f * 0.92) });
     } else {
-      await twoPass(p.mode.kbps, 0, 0.9);
+      await twoPass(p.mode.kbps, 0, 0.92);
     }
-    // never hand out a file over the cap: re-encode tighter if the estimate was off
+  };
+  const size = (f) => fs.statSync(f, { throwIfNoEntry: false })?.size || 0;
+
+  try {
+    // both sides run to the end even if one fails, so no ffmpeg is left writing into files cleaned up below
+    const results = await Promise.allSettled([videoSide(), audioSide()]);
+    const failed = results.find((r) => r.status === 'rejected');
+    if (failed) throw failed.reason;
+    // never hand out a file over the cap: re-encode the video tighter if the estimate was off (+1% for the container)
+    const total = () => (size(tmpV) + size(tmpA)) * 1.01;
     let kbps = p.mode.kind === '2pass' ? p.mode.kbps : Math.min(p.ceiling, p.budget);
-    for (let tries = 0; p.cap && fs.statSync(outFile).size > p.cap && tries < 3; tries++) {
-      const ratio = (p.cap * 0.95) / fs.statSync(outFile).size;
+    for (let tries = 0; p.cap && total() > p.cap && tries < 3; tries++) {
+      const ratio = Math.max(0.05, (p.cap * 0.95 - size(tmpA)) / size(tmpV));
       kbps = Math.max(100, Math.round(kbps * ratio));
-      if (useGpu) await gpuPass(kbps, 0.9, 0.1); else await twoPass(kbps, 0.9, 0.1);
+      if (useGpu) await gpuPass(kbps, 0.92, 0.06); else await twoPass(kbps, 0.92, 0.06);
     }
-    if (p.cap && fs.statSync(outFile).size > p.cap) throw new Error('could not get the clip under the size cap');
+    if (p.cap && total() > p.cap) throw new Error('could not get the clip under the size cap');
+    // join: copy both streams into the final file, fast start for the web
+    await run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-v', 'error', '-i', tmpV, ...(p.activeTracks.length ? ['-i', tmpA] : []),
+      '-map', '0:v:0', ...(p.activeTracks.length ? ['-map', '1:a:0'] : []), '-c', 'copy',
+      '-map_metadata', '-1', '-map_chapters', '-1', '-metadata', `title=${(edit.title || '').slice(0, 200)}`, '-movflags', '+faststart', outFile]);
   } finally {
     for (const f of fs.readdirSync(tmpDir)) if (f.startsWith(path.basename(passlog))) fs.rmSync(path.join(tmpDir, f), { force: true });
+    for (const f of [tmpV, tmpA]) fs.rmSync(f, { force: true });
   }
   onProgress(1);
-  console.log(`rendered ${path.basename(outFile)}: ${p.dur.toFixed(1)} s at ${p.w}x${p.h} ${p.fps} fps in ${((Date.now() - t0) / 1000).toFixed(1)} s (${gpuMode ? `gpu ${gpuMode}` : 'cpu'}, ${p.mode.kind})`);
+  console.log(`rendered ${path.basename(outFile)}: ${p.dur.toFixed(1)} s at ${p.w}x${p.h} ${p.fps} fps in ${((Date.now() - t0) / 1000).toFixed(1)} s (${gpuMode ? `gpu ${gpuMode}` : 'cpu'}, ${p.mode.kind}; audio alongside in ${audioSecs.toFixed(1)} s)`);
   return { bytes: fs.statSync(outFile).size, plan: p, gpu: useGpu, loudness: loud && { measured: loud.I, target: LOUDNESS.I } };
 }
 
