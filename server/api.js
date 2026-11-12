@@ -151,6 +151,9 @@ function housekeeping() {
 setInterval(housekeeping, 3600e3).unref();
 setTimeout(housekeeping, 5000).unref();
 
+// Media for signed-in pages goes out in pieces of at most this size (see sendFile's maxRange).
+const MEDIA_PIECE = 8 * 1024 * 1024;
+
 // ---- validation ----
 function cleanEdit(info, e) {
   const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
@@ -314,7 +317,7 @@ export async function handleApi(req, res, url, user) {
   if ((r = /^\/api\/clips\/([A-Za-z0-9]{12})(\.mp4|\.jpg)?$/.exec(p))) {
     const c = store.getClip(r[1]);
     if (!mine(user, c)) return json(res, 404, { error: 'no such clip' });
-    if (r[2] && m === 'GET') return sendFile(req, res, store.clipFile(c.id, r[2].slice(1)), { 'Cache-Control': 'private, max-age=3600' });
+    if (r[2] && m === 'GET') return sendFile(req, res, store.clipFile(c.id, r[2].slice(1)), { 'Cache-Control': 'private, max-age=3600' }, { maxRange: MEDIA_PIECE });
     if (r[2]) return json(res, 405, { error: 'method not allowed' });
     if (m === 'GET') return json(res, 200, clipView(req, c));
     if (m === 'PATCH') { const b = await body(req); if (typeof b.title === 'string') c.title = cleanTitle(b.title); store.saveClip(c); return json(res, 200, clipView(req, c)); }
@@ -413,9 +416,9 @@ export async function handleApi(req, res, url, user) {
     }
     if (m === 'GET') {
       const f = /^(preview\.mp4|audio-\d+(?:-(?:light|strong))?\.m4a|peaks-\d+(?:-(?:light|strong))?\.json)$/.exec(sub);
-      if (f) return sendFile(req, res, path.join(store.sourceDir(s.id), f[1]), { 'Cache-Control': 'private, max-age=86400' });
+      if (f) return sendFile(req, res, path.join(store.sourceDir(s.id), f[1]), { 'Cache-Control': 'private, max-age=86400' }, { maxRange: MEDIA_PIECE });
       // the recording itself, for browsers that can play it while the preview is converted
-      if (sub === 'original.mp4' && s.directFile && s.preview !== 'ready') return sendFile(req, res, path.join(store.sourceDir(s.id), s.directFile), { 'Content-Type': 'video/mp4', 'Cache-Control': 'private, max-age=86400' });
+      if (sub === 'original.mp4' && s.directFile && s.preview !== 'ready') return sendFile(req, res, path.join(store.sourceDir(s.id), s.directFile), { 'Content-Type': 'video/mp4', 'Cache-Control': 'private, max-age=86400' }, { maxRange: MEDIA_PIECE });
     }
   }
 

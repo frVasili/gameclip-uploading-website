@@ -516,10 +516,13 @@ const updatePlan = debounce(async () => {
     const p = await api(`${base}/plan`, { method: 'POST', body: edit });
     if (seq !== planSeq) return;
     const cap = presets.discord?.cap || 250e6;
+    // a fixed size (2-pass) lands close to its target; a quality-based size is only known as an upper bound
+    const size = p.mode.kind === 'crf' ? (p.maxBytes ? `up to ${fmtBytes(p.maxBytes)}` : 'size depends on the video') : `≈ ${fmtBytes(p.estBytes)}`;
+    const big = p.mode.kind === 'crf' ? (p.maxBytes || Infinity) : p.estBytes;
     const note = info.audio.length && !p.audioKbps ? '<div class="note bad">All audio muted</div>'
-      : !p.cap || (p.preset === 'custom' && p.estBytes > cap) ? `<div class="note warn">Over ${esc(fmtBytes(cap))} will not embed in Discord</div>`
+      : big > cap ? `<div class="note warn">Over ${esc(fmtBytes(cap))} will not embed in Discord</div>`
       : p.mode.kind === '2pass' ? '<div class="note soft">Compressed harder to fit</div>' : '';
-    el.innerHTML = `<div class="main num">${p.w}×${p.h} · ${p.fps} fps · ${fmtDuration(p.dur)} · ≈ ${fmtBytes(p.estBytes)}</div>${note}`;
+    el.innerHTML = `<div class="main num">${p.w}×${p.h} · ${p.fps} fps · ${fmtDuration(p.dur)} · ${size}</div>${note}`;
   } catch (e) {
     if (seq === planSeq) el.innerHTML = `<div class="note bad">${esc(e.message)}</div>`;
   }

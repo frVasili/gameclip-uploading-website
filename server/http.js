@@ -17,7 +17,11 @@ export const json = (res, status, obj, headers = {}) =>
   send(res, status, JSON.stringify(obj), 'application/json', { 'Cache-Control': 'no-store', ...headers });
 
 // Serves a file with Range support (video players and Discord's proxy seek with Range requests).
-export function sendFile(req, res, file, headers = {}) {
+// maxRange: answer a Range request with at most this many bytes (206 with the shorter Content-Range; players
+// then ask for the next piece). The editor uses it: Firefox stops reading a paused video's open-ended download,
+// and on a shared HTTP/2-3 connection the unread data held up the editor's other requests (saves hung on
+// "saving..." until playback resumed).
+export function sendFile(req, res, file, headers = {}, { maxRange = 0 } = {}) {
   let st;
   try { st = fs.statSync(file); } catch { return send(res, 404, 'not found'); }
   if (!st.isFile()) return send(res, 404, 'not found');
@@ -39,6 +43,7 @@ export function sendFile(req, res, file, headers = {}) {
     if (start > end || start >= st.size) {
       res.writeHead(416, { ...base, 'Content-Range': `bytes */${st.size}` }); return res.end();
     }
+    if (maxRange > 0) end = Math.min(end, start + maxRange - 1);
     status = 206;
     base['Content-Range'] = `bytes ${start}-${end}/${st.size}`;
   }

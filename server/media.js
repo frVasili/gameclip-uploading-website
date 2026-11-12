@@ -277,8 +277,10 @@ export function plan(info, edit) {
   // The source's own video bitrate (audio assumed ~128 kbps per track). It says how easy the content is: a
   // lecture that looks fine at 4K on 2 Mbit/s needs far fewer bits per pixel than fast game footage.
   const srcVideoKbps = info.bitrate > 0 && info.width && info.height ? info.bitrate / 1000 - 128 * Math.max(1, info.audio.length) : 0;
-  // bits the source spent on a picture this size (bitrate scales with pixel rate^0.75)
-  const sourceNeed = (c) => srcVideoKbps > 0 ? srcVideoKbps * Math.pow((c.w * c.h * c.fps) / (info.width * info.height * srcFps), 0.75) : Infinity;
+  // Bits the source spent on a picture this size (bitrate scales with pixel rate^0.75), in H.264 terms: HEVC/AV1/VP9
+  // need ~30-40% fewer bits than our H.264 output, and the GPU encoder ~25% more than x264 (margin 1.15).
+  const codecFactor = (info.vcodec && info.vcodec !== 'h264' ? 1.4 : 1) * (edit.gpu ? 1.15 : 1);
+  const sourceNeed = (c) => srcVideoKbps > 0 ? codecFactor * srcVideoKbps * Math.pow((c.w * c.h * c.fps) / (info.width * info.height * srcFps), 0.75) : Infinity;
   let out;
   if (want) out = choose(Math.min(want, maxH), Math.min(fpsWant || srcFps, srcFps));
   else {
@@ -288,8 +290,10 @@ export function plan(info, edit) {
     outer: for (const f of fpsList) {
       for (const h of heights) {
         const c = choose(h, f);
-        // enough bits per pixel for game footage, or at least what the source itself used at this size
-        if ((budget * 1000) / (c.w * c.h * f) >= 0.045 || budget >= sourceNeed(c)) { out = c; break outer; }
+        // enough bits per pixel for game footage, or what the source itself used at this size (easy content like a
+        // lecture), but never under 0.015 bits per pixel (a starved source would otherwise keep a blocky big size)
+        const bpp = (budget * 1000) / (c.w * c.h * f);
+        if (bpp >= 0.045 || (bpp >= 0.015 && budget >= sourceNeed(c))) { out = c; break outer; }
       }
     }
     if (!out) out = choose(Math.min(360, maxH), Math.min(30, srcFps));
@@ -300,13 +304,16 @@ export function plan(info, edit) {
   const srcKbps = srcVideoKbps > 0 ? Math.max(300, srcVideoKbps) : Infinity;
   const ceiling = Math.round(Math.min(qualityCeilingKbps(out.w, out.h, out.fps), srcKbps));
   let mode;
-  if (!preset.cap) mode = { kind: 'crf', crf: 18, ...(Number.isFinite(srcKbps) ? { maxrate: Math.round(srcKbps) } : {}) };
+  // best quality: CRF 18, peaks capped at 2x the "already looks very good" rate for this size, and at the source's own rate
+  if (!preset.cap) mode = { kind: 'crf', crf: 18, maxrate: Math.round(Math.min(srcKbps, 2 * qualityCeilingKbps(out.w, out.h, out.fps))) };
   else if (ceiling <= budget) mode = { kind: 'crf', crf: 20, maxrate: Math.round(Math.min(ceiling * 1.6, budget, srcKbps)) };
   else mode = { kind: '2pass', kbps: Math.round(budget) };
   // rough: CRF usually lands well under the ceiling on game footage; 2-pass hits its target
   const vEst = mode.kind === '2pass' ? budget : Math.min(ceiling, budget) * 0.7;
   const estBytes = (vEst + audioKbps) * 125 * dur;
-  return { preset: edit.preset in PRESETS ? edit.preset : 'discord', cap: preset.cap, dur, ...out, audioKbps, activeTracks, budget, ceiling, mode, estBytes: Math.round(estBytes) };
+  // Quality-based (CRF) sizes depend on the picture: give an upper bound from the peak rate (and the cap) instead.
+  const maxBytes = mode.kind === 'crf' && mode.maxrate ? Math.round(Math.min(preset.cap || Infinity, (mode.maxrate + audioKbps) * 125 * dur)) : null;
+  return { preset: edit.preset in PRESETS ? edit.preset : 'discord', cap: preset.cap, dur, ...out, audioKbps, activeTracks, budget, ceiling, mode, estBytes: Math.round(estBytes), maxBytes };
 }
 
 // gpu: false (all on the CPU), 'upload' (CPU filters, frames go to the GPU encoder) or 'full' (frames stay on the
@@ -430,7 +437,7 @@ export async function render(src, info, edit, outFile, tmpDir, onProgress = () =
 
   try {
     if (useGpu) {
-      await gpuPass(p.cap ? Math.round(p.mode.kind === '2pass' ? p.mode.kbps * 0.97 : Math.min(p.ceiling, p.budget)) : (p.mode.maxrate || 0), 0.05, 0.85);
+      await gpuPass(p.cap ? Math.round(p.mode.kind === '2pass' ? p.mode.kbps * 0.97 : Math.min(p.ceiling, p.budget)) : Math.round(p.mode.maxrate * 0.75), 0.05, 0.85);   // GPU best quality: VBR below the CPU's peak cap
     } else if (p.mode.kind === 'crf') {
       const rate = ['-crf', String(p.mode.crf), ...(p.mode.maxrate ? ['-maxrate', `${p.mode.maxrate}k`, '-bufsize', `${p.mode.maxrate * 2}k`] : [])];
       await run(FFMPEG, [...input(), ...common(), ...rate, ...audio, ...meta, outFile], { duration: p.dur, onProgress: (f) => onProgress(0.05 + f * 0.85) });

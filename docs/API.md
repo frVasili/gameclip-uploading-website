@@ -63,14 +63,14 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 | GET | `/api/status` | `{ user: { …, used, quota }, queue, siteName, presets, leveling, loudnessTarget, gpu: { available }, chunkSize, maxUpload, publicBase }`; the admin also gets `diskFree, ffmpeg, gpu details, running, retentionDays` |
 | GET | `/api/sources[?owner=<id>]` | Source[] newest first (`owner` filter: admin) |
 | GET / PATCH / DELETE | `/api/sources/<sid>` | read; `{ edit?, name? }` autosave; delete the recording (its clips stay online) |
-| POST | `/api/sources/<sid>/plan` | Edit → `{ w, h, fps, dur, audioKbps, cap, estBytes, mode, activeTracks, … }` or 400 |
+| POST | `/api/sources/<sid>/plan` | Edit → `{ w, h, fps, dur, audioKbps, cap, estBytes, maxBytes, mode, activeTracks, … }` or 400. `mode.kind` "2pass": lands near `estBytes`; "crf" (quality-based): `estBytes` is a rough guess and `maxBytes` (null if unknown) an upper bound |
 | POST | `/api/sources/<sid>/export` | Edit → 202 Job. 409 not ready, 413 when a friend is at quota (delete recordings/clips or ask the admin), 507 when free disk is below the configured reserve, 429 too many waiting exports (friends) |
 | POST | `/api/sources/<sid>/preview` | → Source. Starts converting preview.mp4 if `preview` is "needed" or "error" (the editor calls this when the browser can't play the recording) |
 | POST | `/api/sources/<sid>/leveled` | `{ n, level }` → `{ url, peaks }` leveled preview of a track (made once, cached) |
 | POST | `/api/sources/<sid>/loudness` | `{ tracks: [{ n, level }] }` → `[{ n, level, lufs }]` |
 | GET | `/api/sources/<sid>/poster.jpg` | Owner/admin only. Lazily creates and caches a 480px JPEG recording thumbnail; 404 when the recording is not ready or a poster cannot be made |
 | DELETE | `/api/sources/<sid>/exports/<clipId>` | dismiss a failed export (a finished one is deleted with its clip) |
-| GET | `/api/sources/<sid>/preview.mp4`, `original.mp4` (if `direct` and the preview isn't made), `audio-<n>[-light\|-strong].m4a`, `peaks-<n>[-light\|-strong].json` | editor media |
+| GET | (Range requests to editor and library media are answered in pieces of at most 8 MiB) `/api/sources/<sid>/preview.mp4`, `original.mp4` (if `direct` and the preview isn't made), `audio-<n>[-light\|-strong].m4a`, `peaks-<n>[-light\|-strong].json` | editor media |
 | GET | `/api/jobs/<id>` | Job |
 | GET | `/api/clips[?owner=<id>]` | Clip[] |
 | GET / PATCH / DELETE | `/api/clips/<id>` | read; `{ title }`; delete (the link stops working) |

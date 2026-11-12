@@ -96,7 +96,7 @@ test('a downscaled big source still uses the size it is given (4K lecture, 47 mi
 
 test('best quality never asks for more than the source bitrate', () => {
   const p = plan({ duration: 600, width: 854, height: 480, fps: 25, bitrate: 600e3, audio: [{ n: 0 }] }, edit({ end: 300, tracks: [{ n: 0, volume: 1 }], preset: 'original' }));
-  assert.equal(p.mode.kind, 'crf'); assert.equal(p.mode.maxrate, 600 - 128);
+  assert.equal(p.mode.kind, 'crf'); assert.ok(p.mode.maxrate <= 600 - 128);
   assert.ok(p.estBytes <= (600e3 / 8) * 300, `estimate ${p.estBytes}`);
 });
 
@@ -106,4 +106,23 @@ test('auto resolution: easy content (low source bitrate) gets a sharper picture;
   assert.equal(at(400), 1080); assert.equal(at(250), 720);
   const game = { ...info, bitrate: 40e6 };   // OBS 1080p60 at 40 Mbit/s: same choice as with no bitrate known
   for (const end of [30, 120, 300]) assert.equal(plan(game, edit({ end })).h, plan(info, edit({ end })).h);
+});
+
+test('auto resolution: HEVC sources and GPU exports ask for more bits; starved sources do not keep a big size', () => {
+  const lecture = { duration: 2812, width: 3840, height: 2160, fps: 25, bitrate: 2.4e6, audio: [{ n: 0 }], vcodec: 'h264' };
+  const at = (src, o) => plan(src, edit({ end: 2812, tracks: [{ n: 0, volume: 1 }], preset: 'custom', customMB: 400, ...o })).h;
+  assert.equal(at(lecture), 1080);
+  assert.equal(at({ ...lecture, vcodec: 'hevc' }), 720);           // same bitrate in HEVC = more detail to keep
+  assert.ok(at(lecture, { gpu: true }) <= 1080);
+  // a heavily compressed 1080p source: 0.015 bits per pixel minimum, whatever the source spent
+  const starved = { duration: 3600, width: 1920, height: 1080, fps: 30, bitrate: 400e3, audio: [{ n: 0 }], vcodec: 'h264' };
+  // 300 MB for an hour: the budget covers what the source spent at 1080p, but that is only 0.008 bits per pixel
+  const p = plan(starved, edit({ end: 3600, tracks: [{ n: 0, volume: 1 }], preset: 'custom', customMB: 300 }));
+  assert.equal(p.h, 720);
+});
+test('quality-based sizes report an upper bound; fixed sizes do not', () => {
+  const short = plan(info, edit({ end: 30 }));                     // discord, CRF under the cap
+  assert.equal(short.mode.kind, 'crf'); assert.ok(short.maxBytes >= short.estBytes && short.maxBytes <= 250e6);
+  const long = plan(info, edit({ end: 300, preset: 'upload' }));   // 2-pass
+  assert.equal(long.maxBytes, null);
 });
