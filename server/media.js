@@ -274,6 +274,11 @@ export function plan(info, edit) {
   const fpsWant = edit.fps === '30' ? 30 : edit.fps === '60' ? 60 : null;
 
   const choose = (h, f) => ({ h: even(h), w: even(h * aspect), fps: f });
+  // The source's own video bitrate (audio assumed ~128 kbps per track). It says how easy the content is: a
+  // lecture that looks fine at 4K on 2 Mbit/s needs far fewer bits per pixel than fast game footage.
+  const srcVideoKbps = info.bitrate > 0 && info.width && info.height ? info.bitrate / 1000 - 128 * Math.max(1, info.audio.length) : 0;
+  // bits the source spent on a picture this size (bitrate scales with pixel rate^0.75)
+  const sourceNeed = (c) => srcVideoKbps > 0 ? srcVideoKbps * Math.pow((c.w * c.h * c.fps) / (info.width * info.height * srcFps), 0.75) : Infinity;
   let out;
   if (want) out = choose(Math.min(want, maxH), Math.min(fpsWant || srcFps, srcFps));
   else {
@@ -283,7 +288,8 @@ export function plan(info, edit) {
     outer: for (const f of fpsList) {
       for (const h of heights) {
         const c = choose(h, f);
-        if ((budget * 1000) / (c.w * c.h * f) >= 0.045) { out = c; break outer; }
+        // enough bits per pixel for game footage, or at least what the source itself used at this size
+        if ((budget * 1000) / (c.w * c.h * f) >= 0.045 || budget >= sourceNeed(c)) { out = c; break outer; }
       }
     }
     if (!out) out = choose(Math.min(360, maxH), Math.min(30, srcFps));
@@ -291,7 +297,7 @@ export function plan(info, edit) {
   // Never spend more bits than the source had: re-encoding a small, low-bitrate video must not make it bigger.
   // (Not scaled with the picture: a 4K recording shrunk to 540p still deserves the bits the size allows.)
   // Source audio is assumed to be ~128 kbps per track.
-  const srcKbps = info.bitrate > 0 ? Math.max(300, info.bitrate / 1000 - 128 * Math.max(1, info.audio.length)) : Infinity;
+  const srcKbps = srcVideoKbps > 0 ? Math.max(300, srcVideoKbps) : Infinity;
   const ceiling = Math.round(Math.min(qualityCeilingKbps(out.w, out.h, out.fps), srcKbps));
   let mode;
   if (!preset.cap) mode = { kind: 'crf', crf: 18, ...(Number.isFinite(srcKbps) ? { maxrate: Math.round(srcKbps) } : {}) };

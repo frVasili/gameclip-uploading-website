@@ -99,3 +99,11 @@ test('best quality never asks for more than the source bitrate', () => {
   assert.equal(p.mode.kind, 'crf'); assert.equal(p.mode.maxrate, 600 - 128);
   assert.ok(p.estBytes <= (600e3 / 8) * 300, `estimate ${p.estBytes}`);
 });
+
+test('auto resolution: easy content (low source bitrate) gets a sharper picture; game footage is unchanged', () => {
+  const rec = { duration: 2812, width: 3840, height: 2160, fps: 25, bitrate: 2.4e6, audio: [{ n: 0 }] };
+  const at = (mb) => plan(rec, edit({ end: 2812, tracks: [{ n: 0, volume: 1 }], preset: 'custom', customMB: mb })).h;
+  assert.equal(at(400), 1080); assert.equal(at(250), 720);
+  const game = { ...info, bitrate: 40e6 };   // OBS 1080p60 at 40 Mbit/s: same choice as with no bitrate known
+  for (const end of [30, 120, 300]) assert.equal(plan(game, edit({ end })).h, plan(info, edit({ end })).h);
+});
