@@ -288,11 +288,10 @@ export function plan(info, edit) {
     }
     if (!out) out = choose(Math.min(360, maxH), Math.min(30, srcFps));
   }
-  // Never spend more bits than the source had (scaled down with the picture): re-encoding a small, low-bitrate
-  // video must not make it bigger. Source audio is assumed to be ~128 kbps per track.
-  const srcKbps = info.bitrate > 0
-    ? Math.max(300, (info.bitrate / 1000 - 128 * Math.max(1, info.audio.length)) * Math.min(1, Math.pow((out.w * out.h * out.fps) / (info.width * info.height * srcFps), 0.75)))
-    : Infinity;
+  // Never spend more bits than the source had: re-encoding a small, low-bitrate video must not make it bigger.
+  // (Not scaled with the picture: a 4K recording shrunk to 540p still deserves the bits the size allows.)
+  // Source audio is assumed to be ~128 kbps per track.
+  const srcKbps = info.bitrate > 0 ? Math.max(300, info.bitrate / 1000 - 128 * Math.max(1, info.audio.length)) : Infinity;
   const ceiling = Math.round(Math.min(qualityCeilingKbps(out.w, out.h, out.fps), srcKbps));
   let mode;
   if (!preset.cap) mode = { kind: 'crf', crf: 18 };

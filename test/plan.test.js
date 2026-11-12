@@ -86,3 +86,10 @@ test('a low-bitrate source is not inflated: the bitrate stays at or below the so
   assert.ok(p.mode.maxrate <= 600 - 128, `maxrate ${p.mode.maxrate}`);
   assert.ok(p.estBytes < 600e3 / 8 * 600, `estimate ${p.estBytes}`);
 });
+
+test('a downscaled big source still uses the size it is given (4K lecture, 47 min)', () => {
+  const rec = { duration: 2812, width: 3840, height: 2160, fps: 25, bitrate: 2.4e6, audio: [{ n: 0 }] };
+  const sizes = [250, 400, 800].map((mb) => plan(rec, edit({ end: 2812, tracks: [{ n: 0, volume: 1 }], preset: 'custom', customMB: mb })).estBytes);
+  assert.ok(sizes[0] < sizes[1] && sizes[1] < sizes[2], sizes.join(' '));
+  assert.ok(sizes[1] > 300e6 && sizes[1] <= 400e6, `400 MB -> ${sizes[1]}`);
+});
