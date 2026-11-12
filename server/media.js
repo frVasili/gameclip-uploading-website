@@ -294,7 +294,7 @@ export function plan(info, edit) {
   const srcKbps = info.bitrate > 0 ? Math.max(300, info.bitrate / 1000 - 128 * Math.max(1, info.audio.length)) : Infinity;
   const ceiling = Math.round(Math.min(qualityCeilingKbps(out.w, out.h, out.fps), srcKbps));
   let mode;
-  if (!preset.cap) mode = { kind: 'crf', crf: 18 };
+  if (!preset.cap) mode = { kind: 'crf', crf: 18, ...(Number.isFinite(srcKbps) ? { maxrate: Math.round(srcKbps) } : {}) };
   else if (ceiling <= budget) mode = { kind: 'crf', crf: 20, maxrate: Math.round(Math.min(ceiling * 1.6, budget, srcKbps)) };
   else mode = { kind: '2pass', kbps: Math.round(budget) };
   // rough: CRF usually lands well under the ceiling on game footage; 2-pass hits its target
@@ -424,7 +424,7 @@ export async function render(src, info, edit, outFile, tmpDir, onProgress = () =
 
   try {
     if (useGpu) {
-      await gpuPass(p.cap ? Math.round(p.mode.kind === '2pass' ? p.mode.kbps * 0.97 : Math.min(p.ceiling, p.budget)) : 0, 0.05, 0.85);
+      await gpuPass(p.cap ? Math.round(p.mode.kind === '2pass' ? p.mode.kbps * 0.97 : Math.min(p.ceiling, p.budget)) : (p.mode.maxrate || 0), 0.05, 0.85);
     } else if (p.mode.kind === 'crf') {
       const rate = ['-crf', String(p.mode.crf), ...(p.mode.maxrate ? ['-maxrate', `${p.mode.maxrate}k`, '-bufsize', `${p.mode.maxrate * 2}k`] : [])];
       await run(FFMPEG, [...input(), ...common(), ...rate, ...audio, ...meta, outFile], { duration: p.dur, onProgress: (f) => onProgress(0.05 + f * 0.85) });

@@ -93,3 +93,9 @@ test('a downscaled big source still uses the size it is given (4K lecture, 47 mi
   assert.ok(sizes[0] < sizes[1] && sizes[1] < sizes[2], sizes.join(' '));
   assert.ok(sizes[1] > 300e6 && sizes[1] <= 400e6, `400 MB -> ${sizes[1]}`);
 });
+
+test('best quality never asks for more than the source bitrate', () => {
+  const p = plan({ duration: 600, width: 854, height: 480, fps: 25, bitrate: 600e3, audio: [{ n: 0 }] }, edit({ end: 300, tracks: [{ n: 0, volume: 1 }], preset: 'original' }));
+  assert.equal(p.mode.kind, 'crf'); assert.equal(p.mode.maxrate, 600 - 128);
+  assert.ok(p.estBytes <= (600e3 / 8) * 300, `estimate ${p.estBytes}`);
+});
