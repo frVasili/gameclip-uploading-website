@@ -28,8 +28,10 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
   preview?: "needed"|"converting"|"ready"|"error", previewError?,   // the editor's H.264 preview.mp4 (absent = ready)
   direct?: "hvc1.1.6.L153.B0",   // codec string: if video.canPlayType() says yes, original.mp4 plays instead
   info: { duration, width, height, fps, vcodec, vprofile?, vtag?, pixFmt, container, bitrate,
-          audio: [ { n, codec, channels, layout, title, language, silent?, sameAs? } ] },  // after preparing: silent track, or
-                                                   // sameAs = n of an earlier track with exactly the same sound
+          color?: { trc, primaries, matrix, range },   // HDR (trc arib-std-b67 / smpte2084) is tone mapped on export
+          audio: [ { n, stream?, codec, channels, layout, title, language, silent?, sameAs? } ] },  // after preparing: silent track, or
+                                                   // sameAs = n of an earlier track with exactly the same sound;
+                                                   // stream = which audio stream of the file (undecodable ones are left out)
   edit?: Edit, jobs: [Job], exports: [ { clipId, created, state, error?, size?, title, clip: Clip|null } ] }
 ```
 **Edit** (the server clamps and validates it):

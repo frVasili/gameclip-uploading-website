@@ -360,7 +360,7 @@ export async function handleApi(req, res, url, user) {
       const b = await body(req), a = s.info.audio[Number(b.n)];
       if (!a || !(b.level in LEVELING)) return json(res, 400, { error: 'bad track or leveling' });
       const name = `audio-${a.n}-${b.level}.m4a`, out = path.join(store.sourceDir(s.id), name);
-      try { await once(`${s.id}/${name}`, () => (fs.existsSync(out) ? null : sideFfmpeg(() => makeLeveledPreview(srcFile, a.n, b.level, out)))); }
+      try { await once(`${s.id}/${name}`, () => (fs.existsSync(out) ? null : sideFfmpeg(() => makeLeveledPreview(srcFile, a.stream ?? a.n, b.level, out)))); }
       catch (e) { return json(res, 500, { error: userError(e.message) }); }
       return json(res, 200, { url: `/api/sources/${s.id}/${name}`, peaks: `/api/sources/${s.id}/peaks-${a.n}-${b.level}.json` });
     }
@@ -373,7 +373,7 @@ export async function handleApi(req, res, url, user) {
         for (const t of want) {
           const level = t.level in LEVELING ? t.level : 'off', key = `${Number(t.n)}:${level}`;
           if (!(key in cache)) {
-            const v = await once(`${s.id}/loud/${key}`, () => sideFfmpeg(() => measureTrack(srcFile, Number(t.n), level)));
+            const v = await once(`${s.id}/loud/${key}`, () => sideFfmpeg(() => measureTrack(srcFile, s.info.audio[Number(t.n)].stream ?? Number(t.n), level)));
             cache[key] = Number.isFinite(v) ? v : null;
           }
           out.push({ n: Number(t.n), level, lufs: cache[key] });
@@ -394,7 +394,7 @@ export async function handleApi(req, res, url, user) {
       if (s.status !== 'ready' || posterFailures.has(s.id)) return json(res, 404, { error: 'no poster available' });
       const out = path.join(store.sourceDir(s.id), 'poster.jpg');
       try {
-        await once(`${s.id}/poster`, () => (fs.existsSync(out) ? null : sideFfmpeg(() => makePoster(srcFile, Math.min(s.info.duration * 0.1, 5), out))));
+        await once(`${s.id}/poster`, () => (fs.existsSync(out) ? null : sideFfmpeg(() => makePoster(srcFile, Math.min(s.info.duration * 0.1, 5), out, s.info))));
       } catch (e) {
         posterFailures.add(s.id); fs.rmSync(out, { force: true });
         return json(res, 404, { error: 'no poster available' });

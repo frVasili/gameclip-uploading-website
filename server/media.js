@@ -70,28 +70,29 @@ function parseLoudness(stderr) {
   return { I: I > -70 ? I : -Infinity };   // ebur128 reports silence as -70
 }
 
-// Integrated loudness (LUFS) of one source track, optionally after leveling. -Infinity for silence.
-export async function measureTrack(src, n, level = 'off') {
-  const err = await run(FFMPEG, ['-hide_banner', '-nostdin', '-nostats', ...SAFE, '-i', src, '-map', `0:a:${n}`, '-vn', '-sn',
+// Integrated loudness (LUFS) of one audio stream of the source, optionally after leveling. -Infinity for silence.
+export async function measureTrack(src, stream, level = 'off') {
+  const err = await run(FFMPEG, ['-hide_banner', '-nostdin', '-nostats', ...SAFE, '-i', src, '-map', `0:a:${stream}`, '-vn', '-sn',
     '-af', `${trackPrep}${levelFilter(level)},${MEASURE}`, '-f', 'null', '-'], { stderr: true });
   return parseLoudness(err).I;
 }
 
 // Editor preview of a leveled track (the browser can't run dynaudnorm), cached next to the plain one.
-export async function makeLeveledPreview(src, n, level, outFile) {
+export async function makeLeveledPreview(src, stream, level, outFile) {
   if (!LEVELING[level]) throw new Error('unknown leveling');
   const tmp = `${outFile}.tmp.m4a`;
-  await run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-v', 'error', ...SAFE, '-i', src, '-map', `0:a:${n}`, '-vn', '-sn',
+  await run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-v', 'error', ...SAFE, '-i', src, '-map', `0:a:${stream}`, '-vn', '-sn',
     '-af', `${trackPrep}${levelFilter(level)}`, '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', tmp]);
   writePeaks(await pcmOf(tmp, '0:a:0'), outFile.replace(/^(.*)audio-(\d+-\w+)\.m4a$/, '$1peaks-$2.json'));
   fs.renameSync(tmp, outFile);
 }
 
 // A small private library poster. Like every read of an upload, this keeps ffmpeg on the safe protocols/demuxers.
-export async function makePoster(src, at, outFile) {
+export async function makePoster(src, at, outFile, info = {}) {
   const tmp = `${outFile}.tmp.jpg`;
+  info = await withColor(src, info);
   await run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-v', 'error', ...SAFE, '-ss', String(at), '-i', src, '-map', '0:v:0', '-frames:v', '1',
-    '-vf', 'scale=480:-2', '-q:v', '4', tmp]);
+    '-vf', `scale=480:-2${isHdr(info) ? `,${tonemap(info)}` : ''}`, '-q:v', '4', tmp]);
   fs.renameSync(tmp, outFile);
 }
 
@@ -116,6 +117,25 @@ function run(bin, args, { duration, onProgress, nice = true, capture = false, st
   });
 }
 
+// The ffmpeg input label of editor track n (older recordings have no .stream: there n was the stream).
+export const audioIn = (info, n) => `0:a:${info.audio[n]?.stream ?? n}`;
+
+// HDR (HLG, as iPhones record by default, or PQ/HDR10). Shrinking it to normal 8-bit video without converting
+// the colours gives a flat, washed-out picture, so it is tone mapped: SDR white sits at 203 nits (BT.2408),
+// everything up to ~70% of it is kept as is, and brighter parts are rolled off (mobius) instead of clipped.
+export const isHdr = (info) => /^(arib-std-b67|smpte2084)$/.test(info.color?.trc || '');
+export function tonemap(info) {
+  const c = info.color || {};
+  const zin = `tin=${c.trc}:pin=${c.primaries || 'bt2020'}:min=${c.matrix && c.matrix !== 'unknown' ? c.matrix : 'bt2020nc'}:rin=${c.range === 'pc' ? 'full' : 'limited'}`;
+  return `zscale=${zin}:t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,tonemap=mobius:param=0.7:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p`;   // zscale itself makes the 8-bit YUV
+}
+const SDR_TAGS = ['-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709'];
+// Recordings probed before the colour was stored: look it up once more (quick).
+async function withColor(src, info) {
+  if (info.color) return info;
+  try { return { ...info, color: (await probe(src)).color }; } catch { return info; }
+}
+
 const parseRate = (r) => { const [a, b] = String(r || '0/1').split('/').map(Number); return b ? a / b : a || 0; };
 
 export async function probe(file) {
@@ -130,14 +150,18 @@ export async function probe(file) {
   if (Math.abs(rot) % 180 === 90) [width, height] = [height, width];
   const duration = Number(j.format?.duration || v.duration || 0);
   if (!(duration > 0)) throw new Error('could not read the video duration');
-  const audio = streams.filter((s) => s.codec_type === 'audio').map((s, n) => ({
-    n, codec: s.codec_name, channels: s.channels, layout: s.channel_layout,
+  // Audio ffmpeg can't decode (e.g. a codec newer than this ffmpeg) is left out instead of failing the upload.
+  // n: the track's place in this list (what the editor and edits use); stream: which audio stream it is in the file.
+  const audio = streams.filter((s) => s.codec_type === 'audio').map((s, stream) => ({ s, stream }))
+    .filter(({ s }) => s.codec_name && !['none', 'unknown'].includes(s.codec_name)).map(({ s, stream }, n) => ({
+    n, stream, codec: s.codec_name, channels: s.channels, layout: s.channel_layout,
     title: s.tags?.title || s.tags?.handler_name?.replace(/^(Sound|Audio)Handler$/i, '') || '',
     language: s.tags?.language && s.tags.language !== 'und' ? s.tags.language : '',
   }));
   return {
     duration, width, height, fps: Math.round(parseRate(v.avg_frame_rate) || parseRate(v.r_frame_rate) || 30),
     vcodec: v.codec_name, vprofile: v.profile || '', vtag: v.codec_tag_string || '', pixFmt: v.pix_fmt, container: j.format?.format_name, bitrate: Number(j.format?.bit_rate || 0),
+    color: { trc: v.color_transfer || '', primaries: v.color_primaries || '', matrix: v.color_space || '', range: v.color_range || '' },
     audio,
   };
 }
@@ -174,8 +198,8 @@ export async function prepare(src, dir, info, onProgress = () => {}) {
     const outs = [];
     for (const a of info.audio) {
       const copy = a.codec === 'aac' && a.channels <= 2;   // the browser plays it as it is
-      outs.push('-map', `0:a:${a.n}`, ...(copy ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '128k', '-ac', '2']), '-movflags', '+faststart', path.join(dir, `audio-${a.n}.m4a`));
-      outs.push('-map', `0:a:${a.n}`, '-ac', '1', '-ar', '8000', '-f', 's16le', pcm(a.n));   // for the waveform
+      outs.push('-map', audioIn(info, a.n), ...(copy ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '128k', '-ac', '2']), '-movflags', '+faststart', path.join(dir, `audio-${a.n}.m4a`));
+      outs.push('-map', audioIn(info, a.n), '-ac', '1', '-ar', '8000', '-f', 's16le', pcm(a.n));   // for the waveform
     }
     await run(FFMPEG, [...head, ...SAFE, '-i', src, '-vn', '-sn', '-dn', ...outs], { duration: info.duration, onProgress: (f) => { prog.a = f; report(); } });
     return `audio in ${took()}`;
@@ -216,18 +240,21 @@ export function directCodec(info) {
 // The 720p H.264 preview for videos browsers can't all play, when an editor asks for it; the GPU does
 // decode, scaling and encoding when there is one (PREVIEW_HW). Returns a line for the log.
 export async function convertPreview(src, dir, info, onProgress = () => {}) {
+  info = await withColor(src, info);
+  const hdr = isHdr(info);
   const outH = even(Math.min(720, info.height)), outW = even(outH * info.width / info.height);
   const make = (mode) => {
     const hw = mode === 'gpu' ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-hwaccel', 'vaapi', '-hwaccel_device', 'va', '-hwaccel_output_format', 'vaapi']
       : mode === 'hybrid' ? ['-hwaccel', 'vaapi', '-hwaccel_device', gpu.device] : [];
     const v = mode === 'gpu' ? ['-vf', `scale_vaapi=w=${outW}:h=${outH}:format=nv12`, '-c:v', 'h264_vaapi', '-rc_mode', 'CQP', '-qp', '26', '-g', '30']
-      : ['-vf', `scale=${outW}:${outH}:flags=bicubic,format=yuv420p`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '30', '-threads', THREADS];
+      : ['-vf', `scale=${outW}:${outH}:flags=bicubic,${hdr ? `${tonemap(info)},` : ''}format=yuv420p`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '30', '-threads', THREADS, ...(hdr ? SDR_TAGS : [])];
     return run(FFMPEG, ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', ...hw, ...SAFE, '-i', src, '-map', '0:v:0', ...v,
       '-an', '-sn', '-dn', '-movflags', '+faststart', path.join(dir, 'preview.tmp.mp4')], { duration: info.duration, onProgress });
   };
   if (config.previewHw !== 'off') await recheckGpu();
   const t0 = Date.now();
-  let mode = gpu.available && config.previewHw !== 'off' ? (config.previewHw === 'full' ? 'gpu' : 'hybrid') : 'cpu';
+  // HDR: the colours are converted on the CPU, so at most the decoding happens on the GPU
+  let mode = gpu.available && config.previewHw !== 'off' ? (config.previewHw === 'full' && !hdr ? 'gpu' : 'hybrid') : 'cpu';
   try { await make(mode); } catch (e) {
     if (mode === 'cpu') throw e;
     console.error(`GPU preview (${mode}) failed, using the CPU:`, e.message);   // e.g. a codec this GPU can't decode
@@ -325,6 +352,7 @@ export function filters(info, edit, p, loud = null, gpu = false, which = 'both')
   if (gpu === 'full') vf.push(`scale_vaapi=w=${p.w}:h=${p.h}:format=nv12`);
   else if (p.w !== info.width || p.h !== info.height) vf.push(`scale=${p.w}:${p.h}:flags=lanczos`);
   if (p.fps < (info.fps || 30) - 0.5) vf.push(`fps=${p.fps}`);
+  if (gpu !== 'full' && isHdr(info)) vf.push(tonemap(info));
   const fi = Math.max(0, Number(edit.fadeIn) || 0), fo = Math.max(0, Number(edit.fadeOut) || 0);
   if (edit.videoFade && fi) vf.push(`fade=t=in:st=0:d=${fi}`);
   if (edit.videoFade && fo) vf.push(`fade=t=out:st=${Math.max(0, p.dur - fo).toFixed(3)}:d=${fo}`);
@@ -334,7 +362,7 @@ export function filters(info, edit, p, loud = null, gpu = false, which = 'both')
   if (p.activeTracks.length) {
     const labels = p.activeTracks.map((t, i) => {
       const vol = Math.min(4, Math.max(0, Number(t.volume)));
-      parts.push(`[0:a:${t.n}]${trackPrep}${levelFilter(t.level)},volume=${vol.toFixed(3)}[a${i}]`);
+      parts.push(`[${audioIn(info, t.n)}]${trackPrep}${levelFilter(t.level)},volume=${vol.toFixed(3)}[a${i}]`);
       return `[a${i}]`;
     });
     let chain = labels.length > 1 ? `${labels.join('')}amix=inputs=${labels.length}:normalize=0:duration=longest` : `${labels[0]}anull`;
@@ -393,6 +421,7 @@ async function testGpu() {
 const FULL_GPU_CODECS = new Set(['h264', 'hevc']);
 
 export async function render(src, info, edit, outFile, tmpDir, onProgress = () => {}) {
+  info = await withColor(src, info);
   const p = plan(info, edit);
   if (edit.gpu) await recheckGpu();
   const useGpu = !!edit.gpu && gpu.available;
@@ -415,7 +444,7 @@ export async function render(src, info, edit, outFile, tmpDir, onProgress = () =
     audioSecs = (Date.now() - ta) / 1000;
   };
   // GPU: decode on the GPU too when it can (much less work for the CPU), else decode on the CPU and upload
-  let gpuMode = !useGpu ? false : !edit.videoFade && FULL_GPU_CODECS.has(info.vcodec) && info.pixFmt === 'yuv420p' ? 'full' : 'upload';
+  let gpuMode = !useGpu ? false : !edit.videoFade && !isHdr(info) && FULL_GPU_CODECS.has(info.vcodec) && info.pixFmt === 'yuv420p' ? 'full' : 'upload';
   const preset = p.dur <= 120 ? 'medium' : p.dur <= 600 ? 'fast' : 'veryfast';
   const hwIn = () => gpuMode === 'full' ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-hwaccel', 'vaapi', '-hwaccel_device', 'va', '-hwaccel_output_format', 'vaapi', '-filter_hw_device', 'va']
     : gpuMode ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-filter_hw_device', 'va'] : [];
@@ -424,7 +453,7 @@ export async function render(src, info, edit, outFile, tmpDir, onProgress = () =
     ? ['-filter_complex', filters(info, edit, p, null, gpuMode, 'video'), '-map', '[v]', '-c:v', 'h264_vaapi', '-profile:v', 'high', '-g', String(p.fps * 2)]
     : ['-filter_complex', filters(info, edit, p, null, false, 'video'), '-map', '[v]', '-c:v', 'libx264', '-preset', preset, '-profile:v', 'high', '-g', String(p.fps * 2), '-threads', THREADS];
   const audio = ['-an'];   // the audio is made on the side
-  const meta = ['-f', 'mp4'];
+  const meta = ['-f', 'mp4', ...(isHdr(info) ? SDR_TAGS : [])];   // HDR: the output is tone mapped to normal video
   const passlog = path.join(tmpDir, `x264-${path.basename(outFile)}`);
 
   const twoPass = async (kbps, from, span) => {

@@ -58,6 +58,11 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
   measurement plus an alimiter at −1.5 dBTP. Don't use loudnorm's own second pass: it silently falls back to
   dynamic compression, which changed the balance between speakers in testing.
 
+- HDR (HLG from phones, PQ): exports, editor previews and posters are tone mapped (`tonemap()` in media.js:
+  SDR white at 203 nits, mobius roll-off at 0.7). On an HLG test clip this kept saturation ~99 of the SDR
+  original's ~114, against ~40 when it was just squeezed to 8-bit. HDR exports skip the all-GPU path (the tone
+  mapping is a CPU filter). Needs zscale (libzimg), which Alpine's ffmpeg has.
+
 ## Working on it
 - Dev server: `ADMIN_PASSWORD=devpassword DATA_DIR=/tmp/clips-dev PORT=18090 HOST=127.0.0.1 node server/index.js`
   (ffmpeg on PATH). Pages and the asset version are cached at startup: restart after changing anything in web/ or server/.
