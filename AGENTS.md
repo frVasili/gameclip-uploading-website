@@ -62,6 +62,9 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
   SDR white at 203 nits, mobius roll-off at 0.7). On an HLG test clip this kept saturation ~99 of the SDR
   original's ~114, against ~40 when it was just squeezed to 8-bit. HDR exports skip the all-GPU path (the tone
   mapping is a CPU filter). Needs zscale (libzimg), which Alpine's ffmpeg has.
+- Rotated videos (phones store upright video sideways + a rotation): ffmpeg only applies the rotation when the CPU
+  decodes. With VAAPI decoding an upright phone clip came out squashed sideways (tested on an RX 580), so rotated
+  sources are decoded on the CPU (exports still encode on the GPU; previews go all CPU).
 
 ## Working on it
 - Dev server: `ADMIN_PASSWORD=devpassword DATA_DIR=/tmp/clips-dev PORT=18090 HOST=127.0.0.1 node server/index.js`

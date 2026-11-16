@@ -57,7 +57,7 @@ test('HDR (HLG, as phones record it): exports, previews and posters are tone map
     '-c:v', 'libx265', '-preset', 'ultrafast', '-x265-params', 'log-level=error', '-tag:v', 'hvc1',
     '-color_primaries', 'bt2020', '-color_trc', 'arib-std-b67', '-colorspace', 'bt2020nc', src]);
   const info = await probe(src);
-  assert.equal(info.color.trc, 'arib-std-b67');
+  assert.equal(info.color.trc, 'arib-std-b67'); assert.equal(info.rotation, 0);
   const { color, ...stored } = info;   // a recording probed before colours were stored: looked up again
   await render(src, stored, { start: 0, end: 2, preset: 'discord', tracks: [] }, path.join(dir, 'out.mp4'), dir);
   await convertPreview(src, dir, info);

@@ -130,11 +130,14 @@ export function tonemap(info) {
   return `zscale=${zin}:t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,tonemap=mobius:param=0.7:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p`;   // zscale itself makes the 8-bit YUV
 }
 const SDR_TAGS = ['-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709'];
-// Recordings probed before the colour was stored: look it up once more (quick).
+// Recordings probed before colour and rotation were stored: look them up once more (quick).
 async function withColor(src, info) {
-  if (info.color) return info;
-  try { return { ...info, color: (await probe(src)).color }; } catch { return info; }
+  if (info.color && info.rotation !== undefined) return info;
+  try { const p = await probe(src); return { ...info, color: p.color, rotation: p.rotation }; } catch { return info; }
 }
+// GPU decoding skips the rotation (tested: an upright phone video came out squashed sideways), so rotated
+// videos are decoded on the CPU; the GPU can still encode them.
+const rotated = (info) => Math.abs(Number(info.rotation) || 0) % 360 !== 0;
 
 const parseRate = (r) => { const [a, b] = String(r || '0/1').split('/').map(Number); return b ? a / b : a || 0; };
 
@@ -161,6 +164,7 @@ export async function probe(file) {
   return {
     duration, width, height, fps: Math.round(parseRate(v.avg_frame_rate) || parseRate(v.r_frame_rate) || 30),
     vcodec: v.codec_name, vprofile: v.profile || '', vtag: v.codec_tag_string || '', pixFmt: v.pix_fmt, container: j.format?.format_name, bitrate: Number(j.format?.bit_rate || 0),
+    rotation: rot,   // phones store upright videos sideways plus this; ffmpeg turns them only when the CPU decodes
     color: { trc: v.color_transfer || '', primaries: v.color_primaries || '', matrix: v.color_space || '', range: v.color_range || '' },
     audio,
   };
@@ -253,8 +257,8 @@ export async function convertPreview(src, dir, info, onProgress = () => {}) {
   };
   if (config.previewHw !== 'off') await recheckGpu();
   const t0 = Date.now();
-  // HDR: the colours are converted on the CPU, so at most the decoding happens on the GPU
-  let mode = gpu.available && config.previewHw !== 'off' ? (config.previewHw === 'full' && !hdr ? 'gpu' : 'hybrid') : 'cpu';
+  // HDR: the colours are converted on the CPU, so at most the decoding happens on the GPU; rotated: all on the CPU
+  let mode = gpu.available && config.previewHw !== 'off' && !rotated(info) ? (config.previewHw === 'full' && !hdr ? 'gpu' : 'hybrid') : 'cpu';
   try { await make(mode); } catch (e) {
     if (mode === 'cpu') throw e;
     console.error(`GPU preview (${mode}) failed, using the CPU:`, e.message);   // e.g. a codec this GPU can't decode
@@ -444,7 +448,7 @@ export async function render(src, info, edit, outFile, tmpDir, onProgress = () =
     audioSecs = (Date.now() - ta) / 1000;
   };
   // GPU: decode on the GPU too when it can (much less work for the CPU), else decode on the CPU and upload
-  let gpuMode = !useGpu ? false : !edit.videoFade && !isHdr(info) && FULL_GPU_CODECS.has(info.vcodec) && info.pixFmt === 'yuv420p' ? 'full' : 'upload';
+  let gpuMode = !useGpu ? false : !edit.videoFade && !isHdr(info) && !rotated(info) && FULL_GPU_CODECS.has(info.vcodec) && info.pixFmt === 'yuv420p' ? 'full' : 'upload';
   const preset = p.dur <= 120 ? 'medium' : p.dur <= 600 ? 'fast' : 'veryfast';
   const hwIn = () => gpuMode === 'full' ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-hwaccel', 'vaapi', '-hwaccel_device', 'va', '-hwaccel_output_format', 'vaapi', '-filter_hw_device', 'va']
     : gpuMode ? ['-init_hw_device', `vaapi=va:${gpu.device}`, '-filter_hw_device', 'va'] : [];
