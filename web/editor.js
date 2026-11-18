@@ -557,7 +557,7 @@ document.addEventListener('keydown', (e) => {
 function clipCard(c, big = false) {
   if (big) return `<div class="result"><span class="badge ready">Ready</span>
       <div class="link num">${esc(c.url)}</div>
-      <div class="row"><button class="primary" data-copy="${esc(c.url)}">${icon('link')}Copy link</button><a class="btn" href="${esc(c.url)}" target="_blank" rel="noopener">${icon('open')}Open</a>
+      <div class="row"><button class="primary" data-copy="${esc(c.url)}">${icon('link')}Copy link</button><button class="btn" data-copy="${esc(c.mp4)}" data-msg="Direct .mp4 link copied - Discord shows just the video" title="Link to the .mp4 file itself: Discord shows just the video, no title or site name">Direct link</button><a class="btn" href="${esc(c.url)}" target="_blank" rel="noopener">${icon('open')}Open</a>
       <span class="meta num">${fmtBytes(c.size)} · ${c.width}×${c.height}</span></div>
       ${c.hasThumb ? `<img src="/api/clips/${c.id}.jpg?${c.created}" alt="Thumbnail">` : ''}</div>`;
   return `<div class="mini">
@@ -572,7 +572,7 @@ async function renderExports() {
   $('#exportsPanel').hidden = !done.length;
   $('#exports').innerHTML = done.map((x) => clipCard(x.clip)).join('');
 }
-document.addEventListener('click', (e) => { const b = e.target.closest('[data-copy]'); if (b) copy(b.dataset.copy); });
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-copy]'); if (b) copy(b.dataset.copy, b.dataset.msg); });
 
 $('#exportDl').innerHTML = icon('download');
 $('#export').onclick = () => runExport(false);

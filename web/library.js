@@ -310,6 +310,7 @@ async function refresh() {
 function clipMenu(btn, c) {
   menu(btn, [
     { label: 'Open page', icon: 'open', run: () => window.open(c.url, '_blank', 'noopener') },
+    { label: 'Copy direct link', icon: 'link', run: () => copy(c.mp4, 'Direct .mp4 link copied - Discord shows just the video') },
     ...(!c.sourceGone ? [{ label: 'Edit', icon: 'scissors', run: () => { location.href = `/edit/${c.sourceId}?clip=${c.id}`; } }] : []),
     { label: 'Rename', icon: 'edit', run: async () => {
       const title = await promptDialog('Rename clip', { label: 'Title', value: c.title });
