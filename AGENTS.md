@@ -14,7 +14,7 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
   admin (password-only sign-in, so passwords are unique), scrypt hashes, sessions (hashed tokens), rate limiting.
 - `server/api.js`: signed-in API: chunked uploads, library, editor endpoints, exports, user management,
   the one-at-a-time ffmpeg job queue, housekeeping (stale uploads, optional retention).
-- `server/uploads.js`: resumable upload in pieces, several at once, any order (Cloudflare's 100 MB body limit;
+- `server/uploads.js`: resumable upload in pieces (plus `writeWhole` for the one-request phone shortcut), several at once, any order (Cloudflare's 100 MB body limit;
   flaky connections; one request through the proxy is slower than the line).
 - `server/media.js`: probe, editor previews (silent video, per-track audio, peaks, leveled previews), the size
   planner, the render (x264 two-pass / CRF, or VAAPI), audio graph (leveling, mix, normalization, limiter).
@@ -26,7 +26,8 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
   switches, badges; page rules in `library.css`, `editor.css`, `admin.css`). One self-hosted font, Inter (`inter.woff2`, docs/font-licenses.md). No framework, no build, no external requests (CSP enforces it).
   The look is "Aqua" (old OS X / iTunes): grey gradient toolbar, source-list sidebar that becomes a bottom tab bar
   on phones, white content, glossy push buttons; light only. Motion (end of app.css) is short and physical: alerts pop, notices flip in,
-  new items pop into place, deleted ones shrink away; all of it is off under `prefers-reduced-motion`. `/enctest` (`enctest.*`) measures the visitor's browser video encoders.
+  new items pop into place, deleted ones shrink away; all of it is off under `prefers-reduced-motion`. Installable: `/manifest.webmanifest` (index.js) + `icon-192/512.png`, `apple-touch-icon.png`.
+  `/enctest` (`enctest.*`) measures the visitor's browser video encoders.
   UI rules: no grey helper paragraphs (use structure, defaults, labels, `title` tooltips); no `confirm()`/`prompt()`
   (use the dialogs); numbers and timecodes in `.num`.
   Pages are served with `/static/v-<hash>/` asset URLs (index.js `VERSION`, a hash of web/) cached as immutable,
@@ -40,9 +41,11 @@ person, hostname, domain, IP, path or account goes into tracked files. This repo
 ## Rules that keep it safe (don't break these)
 - Anonymous visitors can only reach `/home` and other static pages, `/healthz`, and clip pages by exact id.
   Never add listings, search, sequential ids, or anything that reveals other clips or users.
-- Every `/api/*` route except login/logout/me needs a session. Every object has an `owner`; non-admins only
+- Every `/api/*` route except login/logout/me, the invite routes and `/api/drop` needs a session. `/api/drop` (the
+  phone shortcut) takes a per-person upload key in `Authorization` instead, and can only add a recording. Every object has an `owner`; non-admins only
   see and change their own (`mine()` in api.js). Admin-only routes check `user.admin`.
-- Every state-changing request needs the `X-Clips: 1` header (CSRF). Cookies are HttpOnly + SameSite=Lax.
+- Every state-changing request needs the `X-Clips: 1` header (CSRF), except `/api/drop` (its `Authorization`
+  header already forces a CORS preflight we never answer). Cookies are HttpOnly + SameSite=Lax.
 - Uploaded files are untrusted: every ffmpeg/ffprobe read of an upload uses `SAFE` (protocol and demuxer
   allow-lists) and `probe()` rejects other containers. Keep that for any new ffmpeg call on user files.
 - Errors shown to users go through `userError()` (no server paths).

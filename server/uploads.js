@@ -32,7 +32,7 @@ export function removeUpload(id) {
 }
 
 // Checks name/size/quota/disk and registers a new upload. Throws Error with .status.
-export function startUpload(user, { name, size }) {
+export function startUpload(user, { name, size }, { resume = true } = {}) {
   const fail = (status, msg) => Object.assign(new Error(msg), { status });
   name = String(name || 'clip.mp4').replace(/[\/\\\u0000-\u001f]/g, '_').slice(0, 200);
   const ext = (name.split('.').pop() || '').toLowerCase();
@@ -46,7 +46,7 @@ export function startUpload(user, { name, size }) {
   // The same file again (same owner, name and size), e.g. from another browser or after site data was cleared:
   // continue that upload instead of holding its space twice.
   const same = unfinished.find((u) => u.owner === user.id && u.name === name && Number(u.size) === size && store.UPLOAD_ID.test(u.id || ''));
-  if (same) { const u = getUpload(same.id); if (u) { u.updated = Date.now(); saveUpload(u); return u; } }
+  if (same && resume) { const u = getUpload(same.id); if (u) { u.updated = Date.now(); saveUpload(u); return u; } }
   const reserved = unfinished.reduce((n, u) => n + remaining(u), 0);
   const free = store.diskFree();
   if (free !== null && free - reserved - size < config.minFreeBytes) throw fail(507, 'not enough disk space on the server');
@@ -90,6 +90,28 @@ export async function writeChunk(u, req, offset) {
   fresh.pieces.sort((a, b) => a - b);
   fresh.received = fresh.pieces.reduce((n, i) => n + Math.min(fresh.chunk, fresh.size - i * fresh.chunk), 0);
   fresh.updated = Date.now();
+  saveUpload(fresh);
+  return fresh;
+}
+
+// The whole file in one request body (the phone shortcut: it can't split a file). Content-Length is the
+// declared size; anything else fails. Proxies cap single requests (Cloudflare: 100 MB).
+export async function writeWhole(u, req) {
+  const fail = (status, msg) => Object.assign(new Error(msg), { status });
+  const fh = await fs.promises.open(part(u.id), 'w');
+  let pos = 0;
+  try {
+    for await (const chunk of req) {
+      if (pos + chunk.length > u.size) throw fail(400, 'more data than Content-Length');
+      await fh.write(chunk, 0, chunk.length, pos);
+      pos += chunk.length;
+    }
+  } finally { await fh.close(); }
+  if (pos !== u.size) throw fail(400, 'the upload was cut off');
+  const fresh = getUpload(u.id);
+  if (!fresh) throw fail(404, 'the upload was cancelled');
+  fresh.pieces = [...Array(pieceCount(fresh)).keys()];
+  fresh.received = fresh.size; fresh.updated = Date.now();
   saveUpload(fresh);
   return fresh;
 }

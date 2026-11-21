@@ -60,6 +60,15 @@ table.users .secret { margin: 0 0 4px; max-width: 520px; }
 #pwForm > button { width: 100%; }
 @media (max-width: 900px) { .selfview { grid-template-columns: 1fr; } }
 
+/* the iPhone shortcut */
+.panel.phone { margin-top: 18px; max-width: 640px; }
+.panel.phone h2 { margin-bottom: 12px; }
+.panel.phone .secret { margin-top: 0; }
+.keyrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.keyrow .grow { flex: 1; }
+ol.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; line-height: 1.5; }
+ol.steps .sval { margin-top: 6px; }
+
 @media (max-width: 700px) {
   .hide-sm { display: none; }
   .fields { grid-template-columns: 1fr; }

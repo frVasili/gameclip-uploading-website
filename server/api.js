@@ -8,7 +8,7 @@ import { config, publicBase } from './config.js';
 import * as store from './store.js';
 import * as auth from './auth.js';
 import * as uploads from './uploads.js';
-import { json, sendFile, readBody } from './http.js';
+import { json, send, sendFile, readBody } from './http.js';
 import { probe, prepare, convertPreview, render, plan, thumbnail, PRESETS, LEVELING, LOUDNESS, measureTrack, makeLeveledPreview, makePoster, CUSTOM_MB, gpu, detectGpu, maxOf } from './media.js';
 
 let FFMPEG_VERSION = 'unknown';
@@ -233,6 +233,46 @@ function usageView(user) {
 const body = async (req) => { const t = await readBody(req); try { return t ? JSON.parse(t) : {}; } catch { throw Object.assign(new Error('invalid JSON'), { status: 400 }); } };
 const sendErr = (res, e) => json(res, e.status || 400, { error: e.message }, e.retryAfter ? { 'Retry-After': String(e.retryAfter) } : {});
 
+// A fully received upload becomes a recording: probed, moved, queued for preparing. Throws 400 if it isn't a video.
+async function completeUpload(user, u) {
+  let info;
+  try { info = await probe(uploads.partPath(u.id)); } catch (e) {
+    uploads.removeUpload(u.id);
+    throw Object.assign(new Error(`could not read that video: ${userError(e.message)}`), { status: 400 });
+  }
+  const sid = store.randomId(16);
+  uploads.finishUpload(u, sid);
+  const s = { id: sid, owner: user.id, name: u.name, file: `source.${u.ext}`, size: u.size, created: Date.now(), status: 'queued', info, exports: [] };
+  store.saveSource(s); store.forgetUsage();
+  prepareJob(s);
+  return s;
+}
+
+// POST /api/drop: the phone shortcut. Authorization: Bearer <upload key>, the raw video as the body (one request,
+// so at most what the proxy lets through). Answers plain text, because the shortcut shows it as a notification.
+const DROP_TYPES = { 'video/quicktime': 'mov', 'video/mp4': 'mp4', 'video/x-m4v': 'm4v', 'video/webm': 'webm', 'video/x-matroska': 'mkv' };
+export async function handleDrop(req, res) {
+  const say = (status, text, headers = {}) => send(res, status, `${text}\n`, 'text/plain; charset=utf-8', { 'Cache-Control': 'no-store', ...headers });
+  let user;
+  try { user = auth.userFromUploadKey(req); } catch (e) { req.resume(); return say(e.status || 401, e.message, e.retryAfter ? { 'Retry-After': String(e.retryAfter) } : {}); }
+  const size = Number(req.headers['content-length']);
+  if (!(size > 0)) { req.resume(); return say(411, 'No video arrived. In the shortcut, set Request Body to File and pick the shared video.'); }
+  // a name from the optional X-Name header (URI-encoded), else "Phone video"; the extension from the type
+  let name = '';
+  try { name = decodeURIComponent(String(req.headers['x-name'] || '')).trim(); } catch { /* keep empty */ }
+  const typeExt = DROP_TYPES[String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase()];
+  if (!uploads.VIDEO_EXT.has((name.split('.').pop() || '').toLowerCase())) name = `${name || 'Phone video'}.${typeExt || 'mov'}`;
+  let u;
+  try { u = uploads.startUpload(user, { name, size }, { resume: false }); } catch (e) { req.resume(); return say(e.status || 400, `Not uploaded: ${e.message}`); }
+  try { u = await uploads.writeWhole(u, req); } catch (e) {
+    uploads.removeUpload(u.id);
+    if (!res.headersSent && !res.destroyed) say(e.status || 400, `Not uploaded: ${userError(e.message)}`);
+    return;
+  }
+  try { const s = await completeUpload(user, u); return say(201, `Uploaded ${s.name} to ${config.siteName}.`); }
+  catch (e) { return say(e.status || 400, `Not uploaded: ${e.message}`); }
+}
+
 // ---- router: returns true if it handled the request ----
 export async function handleApi(req, res, url, user) {
   const p = url.pathname, m = req.method;
@@ -287,18 +327,15 @@ export async function handleApi(req, res, url, user) {
     }
     if (r[2] && m === 'POST') {
       if (u.received !== u.size) return json(res, 409, { error: `only ${u.received} of ${u.size} bytes arrived` });
-      let info;
-      try { info = await probe(uploads.partPath(u.id)); } catch (e) {
-        uploads.removeUpload(u.id);
-        return json(res, 400, { error: `could not read that video: ${userError(e.message)}` });
-      }
-      const sid = store.randomId(16);
-      uploads.finishUpload(u, sid);
-      const s = { id: sid, owner: user.id, name: u.name, file: `source.${u.ext}`, size: u.size, created: Date.now(), status: 'queued', info, exports: [] };
-      store.saveSource(s); store.forgetUsage();
-      prepareJob(s);
-      return json(res, 201, sourceView(req, s));
+      try { return json(res, 201, sourceView(req, await completeUpload(user, u))); } catch (e) { return sendErr(res, e); }
     }
+  }
+
+  // ---- upload key for the phone shortcut (POST /api/drop, handled in handleDrop) ----
+  if (p === '/api/me/upload-key') {
+    if (m === 'GET') return json(res, 200, { key: auth.uploadKeyInfo(user.id), url: `${publicBase(req)}/api/drop` });
+    if (m === 'POST') return json(res, 201, { ...auth.createUploadKey(user.id), url: `${publicBase(req)}/api/drop` });
+    if (m === 'DELETE') { auth.deleteUploadKey(user.id); return json(res, 200, { ok: true }); }
   }
 
   // ---- library ----

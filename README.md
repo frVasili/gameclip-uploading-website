@@ -21,6 +21,10 @@ plays right inside Discord. Friends get their own login and their own library.
 - **Friends:** the admin creates a login per person (or sends a one-time invite link where they pick their own name and password), with a storage limit; friends can change their own password. Everyone sees only their own uploads.
   Everyone can change their own name on the **Account** tab; the admin can rename anyone on **Users & server**.
 - **Big uploads** go up in pieces and resume after a dropped connection. This also gets past Cloudflare's 100 MB request limit.
+- **On a phone:** add the site to the home screen (it opens full screen, like an app; the screen stays on during
+  uploads). On iPhone, a Shortcut can upload a video straight from the Photos share sheet: each person sets
+  theirs up on the **Account** page. One request carries the whole file, so behind Cloudflare that path takes
+  videos up to 100 MB; bigger ones go through the site.
 - **Optional GPU encoding** (AMD/Intel VAAPI) for faster exports.
 - One container, no database, nothing phones home. Plain Node + ffmpeg.
 
@@ -76,6 +80,8 @@ per-friend storage, automatic deletion of old recordings, CPU threads, the size 
 
 - Passwords are stored as scrypt hashes; sessions are random tokens in HttpOnly cookies. Wrong passwords are
   rate limited. People sign in with their name and password. Invite links keep the token in the URL fragment and store only its hash.
+- The phone shortcut's upload key (one per person, stored hashed) can only add recordings to its owner's
+  library. Making a new key or turning it off stops the old one.
 - Uploaded files are treated as untrusted. Only real video containers are accepted, and ffmpeg can't follow
   playlists or links inside them, because that trick can leak server files.
 - The container runs as an unprivileged user with a read-only filesystem and no capabilities.

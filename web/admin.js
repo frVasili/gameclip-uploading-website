@@ -122,6 +122,39 @@ function userMenu(btn, key) {
   menu(btn, items);
 }
 
+// ---- iPhone shortcut: share a video from Photos straight into your library (POST /api/drop with your key) ----
+let phoneKey = null;
+async function loadPhone(fresh = null) {
+  const d = fresh || await api('/api/me/upload-key');
+  phoneKey = d.key;
+  $('#phonePanel').hidden = false;
+  if (fresh) {
+    const field = (v, what) => `<div class="sval"><code>${esc(v)}</code><button class="small primary" data-copypw="${esc(v)}" data-what="${what}" type="button">${icon('link')}Copy</button></div>`;
+    $('#phoneBody').innerHTML = `<div class="secret"><ol class="steps">
+      <li>In <b>Shortcuts</b>, make a new shortcut. In its <b>Details</b>, turn on <b>Show in Share Sheet</b>.</li>
+      <li>Add <b>Get Contents of URL</b> with this address:${field(d.url, 'Address copied')}</li>
+      <li>Tap <b>›</b> on it. Method <b>POST</b>. Add a header named <b>Authorization</b> with this value:${field(`Bearer ${d.key}`, 'Key copied')}</li>
+      <li>Request Body <b>File</b>, and pick <b>Shortcut Input</b>.</li>
+      <li>Add <b>Show Notification</b> with <b>Contents of URL</b>. Name the shortcut, e.g. Clips.</li>
+      <li>In Photos, share a video and pick the shortcut.</li></ol>
+      <span class="snote">The key is shown once. Keep it to yourself: it uploads to your account.</span></div>`;
+    return;
+  }
+  $('#phoneBody').innerHTML = d.key
+    ? `<div class="keyrow"><span class="badge ready">on</span><span class="num">set up ${esc(ago(d.key.created))}${d.key.lastUsed ? `, last used ${esc(ago(d.key.lastUsed))}` : ''}</span>
+        <span class="grow"></span><button type="button" data-phone="new">${icon('key')}New key</button><button type="button" class="danger" data-phone="off">Turn off</button></div>`
+    : `<button class="primary" type="button" data-phone="new">${icon('key')}Set up</button>`;
+}
+async function phoneAction(what) {
+  if (what === 'off') {
+    if (!(await confirmDialog('Turn off the iPhone shortcut?', 'Its key stops working.', { ok: 'Turn off', danger: true }))) return;
+    await api('/api/me/upload-key', { method: 'DELETE' });
+    return loadPhone();
+  }
+  if (phoneKey && !(await confirmDialog('Make a new key?', 'Shortcuts with the old key stop working.', { ok: 'New key', danger: true }))) return;
+  loadPhone(await api('/api/me/upload-key', { method: 'POST' }));
+}
+
 $('#addForm').onsubmit = async (e) => {
   e.preventDefault();
   const btn = e.target.querySelector('button[type=submit]'); btn.disabled = true;
@@ -166,6 +199,7 @@ document.addEventListener('click', async (e) => {
   try {
     if (d.copypw) return copy(d.copypw, d.what || 'Password copied');
     if (d.umenu) return userMenu(b, d.umenu);
+    if (d.phone) return await phoneAction(d.phone);
     if (d.rename) return await rename(d.rename, d.name);
     if (d.revoke) {
       if (!(await confirmDialog('Revoke this invite link?', 'It stops working.', { ok: 'Revoke', danger: true }))) return;
@@ -180,4 +214,5 @@ document.addEventListener('click', async (e) => {
   me = user;
   renderHeader(user, siteName, { page: 'admin' });
   load().catch((e) => toast(e.message, true));
+  loadPhone().catch((e) => toast(e.message, true));
 })();

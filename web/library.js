@@ -56,9 +56,25 @@ function addFiles(files) {
   pending.push(...list.map((f) => ({ file: f, single })));
   pumpUploads();
 }
+// Phones stop uploading when the screen locks, so keep it on while files go up (where the browser allows it).
+let wake = null;
+async function stayAwake(on) {
+  try {
+    if (on && !wake && navigator.wakeLock && document.visibilityState === 'visible') {
+      wake = navigator.wakeLock.request('screen');
+      const lock = await wake;
+      lock.addEventListener('release', () => { if (wake === lock) wake = null; });
+      wake = lock;
+      if (!uploading && !pending.length) stayAwake(false);
+    } else if (!on && wake) { const w = await wake; wake = null; await w.release(); }
+  } catch { wake = null; /* refused (e.g. low power mode): uploads still work, they just pause while the screen is locked */ }
+}
+document.addEventListener('visibilitychange', () => { if (uploading) stayAwake(true); });
+
 async function pumpUploads() {
   if (uploading || !pending.length) return;
   uploading = true;
+  stayAwake(true);
   const { file, single } = pending.shift();
   try {
     const src = await uploadOne(file);
@@ -66,7 +82,7 @@ async function pumpUploads() {
     refresh();
   } catch (e) {
     if (e.message !== 'cancelled') toast(`${file.name}: ${e.message}`, true);
-  } finally { uploading = false; pumpUploads(); }
+  } finally { uploading = false; if (!pending.length) stayAwake(false); pumpUploads(); }
 }
 
 function putPiece(url, blob, onProgress, xhrs) {

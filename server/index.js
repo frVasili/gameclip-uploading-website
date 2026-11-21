@@ -12,7 +12,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { config } from './config.js';
 import * as auth from './auth.js';
-import { handleApi, userError } from './api.js';
+import { handleApi, handleDrop, userError } from './api.js';
 import { handleClipPage, notFoundPage } from './pages.js';
 import { send, json, sendFile, readBody, TYPES } from './http.js';
 
@@ -50,6 +50,17 @@ function sendPage(req, res, file) {
   return send(res, 200, html, 'text/html; charset=utf-8', headers);
 }
 
+// "Add to Home Screen": opens /home full screen, with the site's name and icon
+const manifest = () => JSON.stringify({
+  name: config.siteName, short_name: config.siteName.length > 12 ? 'Clips' : config.siteName, id: '/home', start_url: '/home', scope: '/',
+  display: 'standalone', background_color: '#ffffff', theme_color: '#e3e3e3',
+  icons: [
+    { src: `/static/v-${VERSION}/icon-192.png`, sizes: '192x192', type: 'image/png' },
+    { src: `/static/v-${VERSION}/icon-512.png`, sizes: '512x512', type: 'image/png' },
+    { src: `/static/v-${VERSION}/icon-512.png`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+  ],
+});
+
 // small JSON body for the public auth endpoints; bad or oversized input counts as empty
 async function smallBody(req) {
   try { const b = JSON.parse(await readBody(req, 4096) || '{}'); return b && typeof b === 'object' ? b : {}; } catch { return {}; }
@@ -71,6 +82,7 @@ async function handle(req, res) {
   if (handleClipPage(req, res, p, url.searchParams)) return;
   if (p === '/' && (m === 'GET' || m === 'HEAD')) { res.writeHead(302, { Location: '/home' }); return res.end(); }
 
+  if (p === '/manifest.webmanifest' && (m === 'GET' || m === 'HEAD')) return send(res, 200, manifest(), 'application/manifest+json', { 'Cache-Control': 'no-cache' });
   if (m === 'GET' || m === 'HEAD') {
     const page = PAGES[p] || (/^\/edit\/[A-Za-z0-9]{16}$/.test(p) ? 'editor.html' : null);
     if (page) return sendPage(req, res, page);
@@ -84,6 +96,9 @@ async function handle(req, res) {
 
   if (p.startsWith('/api/')) {
     res.setHeader('Cache-Control', 'no-store');
+    // the phone shortcut: its upload key in the Authorization header is the credential. A cross-site page can't
+    // send that header without a CORS preflight we never answer, so it needs no X-Clips header.
+    if (p === '/api/drop' && m === 'POST') return handleDrop(req, res);
     if (m !== 'GET' && m !== 'HEAD' && req.headers['x-clips'] !== '1') return json(res, 403, { error: 'missing X-Clips header' });
     if (p === '/api/login' && m === 'POST') {
       const b = await smallBody(req);

@@ -8,7 +8,7 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 
 ## Pages (no login needed to load them; their data needs one)
 `/` → 302 `/home` · `/home` sign-in + library · `/invite#<token>` accept an invite · `/edit/<sourceId>` editor · `/admin` users & server (admin) ·
-`/static/<file>` · `/healthz` · `/<clipId>` public watch page · `/<clipId>.mp4` (`?download`: saved under the clip's title) · `/<clipId>.jpg`
+`/static/<file>` · `/manifest.webmanifest` (home screen app) · `/healthz` · `/<clipId>` public watch page · `/<clipId>.mp4` (`?download`: saved under the clip's title) · `/<clipId>.jpg`
 
 ## Sign in
 | method | path | |
@@ -58,6 +58,16 @@ JSON in and out. Errors: `{ "error": "message" }` with a 4xx/5xx status.
 | PUT | `/api/uploads/<id>?offset=N` | piece number N / chunkSize: raw bytes, exactly `chunkSize` (less for the last). Any order, several at once; a piece sent again is accepted → `{ received, pieces }` |
 | POST | `/api/uploads/<id>/complete` | probes the file → 201 Source (then prepared in the background), or 400 if it isn't a usable video |
 | DELETE | `/api/uploads/<id>` | cancel. Unfinished uploads untouched for 24 h are deleted |
+
+## Phone shortcut
+| method | path | |
+|---|---|---|
+| GET | `/api/me/upload-key` | `{ key: { created, lastUsed } \| null, url }` (`url`: the address the shortcut posts to) |
+| POST | `/api/me/upload-key` | → 201 `{ key, created, lastUsed, url }`: makes your upload key, shown only here; replaces any old one |
+| DELETE | `/api/me/upload-key` | turns it off |
+| POST | `/api/drop` | No session and no `X-Clips`: `Authorization: Bearer <key>` (or just the key) is the credential. Body: the raw video, one request (`Content-Length` required; behind Cloudflare at most 100 MB). Optional `X-Name` (URI-encoded file name), else "Phone video"; the extension comes from `Content-Type` (`video/quicktime` → .mov). Same quota/disk checks as uploads. Answers **plain text** for the shortcut's notification: 201 `Uploaded <name> to <site>.`, or 401 wrong key (counts as a failed sign-in), 411, 413, 400 `Not uploaded: …`, 429 |
+
+The admin disabling someone or giving them a new password also removes their key. A key can do nothing else.
 
 ## Library and editor
 | method | path | |

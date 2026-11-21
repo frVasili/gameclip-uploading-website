@@ -3,6 +3,8 @@
 //   - passwords: scrypt with a per-user salt; plaintext is shown once when created/reset, never stored
 //   - sessions: random 256-bit token in an HttpOnly cookie; only its SHA-256 is stored
 //   - failed logins are rate limited per client IP and globally
+//   - upload keys (for the phone shortcut): one per person, random 256-bit, only its SHA-256 is stored; a key can
+//     only add recordings (POST /api/drop), nothing else
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -11,7 +13,7 @@ import { DATA_DIR, writeJson, readJson, randomId } from './store.js';
 
 const FILE = path.join(DATA_DIR, 'auth.json');
 const COOKIE = 'clips_session';
-const loadDb = () => { const d = readJson(FILE) || {}; return { ...d, users: d.users || [], sessions: d.sessions || {}, invites: d.invites || [] }; };
+const loadDb = () => { const d = readJson(FILE) || {}; return { ...d, users: d.users || [], sessions: d.sessions || {}, invites: d.invites || [], uploadKeys: d.uploadKeys || {} }; };
 let db = loadDb();
 const pruneInvites = () => { const now = Date.now(); db.invites = db.invites.filter((i) => i.expires > now); };
 const save = () => { pruneInvites(); writeJson(FILE, db, 0o600); };
@@ -276,6 +278,7 @@ export async function updateUser(id, { name, quotaGB, disabled, resetPassword, p
     u.hash = await hashPassword(newPassword);
   }
   if (u.disabled || newPassword) for (const [k, s] of Object.entries(db.sessions)) if (s.uid === id) delete db.sessions[k];
+  if (u.disabled || newPassword) for (const [k, s] of Object.entries(db.uploadKeys)) if (s.uid === id) delete db.uploadKeys[k];
   save();
   return { user: userView(u), password: newPassword };
 }
@@ -284,6 +287,7 @@ export function deleteUser(id) {
   const before = db.users.length;
   db.users = db.users.filter((u) => u.id !== id);
   for (const [k, s] of Object.entries(db.sessions)) if (s.uid === id) delete db.sessions[k];
+  for (const [k, s] of Object.entries(db.uploadKeys)) if (s.uid === id) delete db.uploadKeys[k];
   save();
   return db.users.length < before;
 }
@@ -336,6 +340,35 @@ export async function acceptInvite(req, res, { token, name, password }) {
     startSession(req, res, u.id);
     return { user: userById(u.id) };
   } catch (e) { db.invites.push(inv); save(); throw e; }
+}
+
+// ---- upload keys (the phone shortcut sends "Authorization: Bearer <key>") ----
+// Making a new key replaces the old one. Disabled or deleted people's keys stop working.
+export function uploadKeyInfo(uid) {
+  const k = Object.values(db.uploadKeys).find((x) => x.uid === uid);
+  return k ? { created: k.created, lastUsed: k.lastUsed || null } : null;
+}
+export function createUploadKey(uid) {
+  for (const [h, k] of Object.entries(db.uploadKeys)) if (k.uid === uid) delete db.uploadKeys[h];
+  const token = crypto.randomBytes(32).toString('base64url');
+  db.uploadKeys[tokenHash(token)] = { uid, created: Date.now() };
+  save();
+  return { key: token, ...uploadKeyInfo(uid) };
+}
+export function deleteUploadKey(uid) {
+  for (const [h, k] of Object.entries(db.uploadKeys)) if (k.uid === uid) delete db.uploadKeys[h];
+  save();
+}
+// The user an Authorization header's key belongs to. Throws 401/429; wrong keys count like wrong passwords.
+export function userFromUploadKey(req) {
+  const ip = clientIp(req);
+  if (limited(ip)) throw tooMany();
+  const m = /^\s*(?:Bearer\s+)?([A-Za-z0-9_-]{43})\s*$/i.exec(String(req.headers.authorization || ''));
+  const k = m && db.uploadKeys[tokenHash(m[1])];
+  const user = k && userById(k.uid);
+  if (!user) { recordFail(ip); throw bad(401, 'That upload key is wrong or was replaced. Make a new one on your Account page.'); }
+  if (Date.now() - (k.lastUsed || 0) > 60e3) { k.lastUsed = Date.now(); save(); }
+  return user;
 }
 
 // for tests

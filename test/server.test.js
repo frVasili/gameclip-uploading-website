@@ -206,6 +206,61 @@ test('upload in pieces, prepare, export, public page; others cannot see it', { s
   assert.equal((await anon(`/${j.clipId}`)).status, 404);
 });
 
+test('phone shortcut: upload keys are per person, shown once, replaceable, and only upload', async () => {
+  const robin = client();
+  const made = await admin('/api/users', { method: 'POST', body: { name: 'Robin' } });
+  await robin('/api/login', { method: 'POST', body: { name: 'Robin', password: made.json.password } });
+  let r = await robin('/api/me/upload-key');
+  assert.equal(r.json.key, null); assert.match(r.json.url, /\/api\/drop$/);
+  assert.equal((await robin('/api/me/upload-key', { method: 'POST', csrf: false })).status, 403, 'making a key needs X-Clips');
+  r = await robin('/api/me/upload-key', { method: 'POST' });
+  assert.equal(r.status, 201); assert.match(r.json.key, /^[A-Za-z0-9_-]{43}$/);
+  const key = r.json.key;
+  assert.equal((await robin('/api/me/upload-key')).json.key.key, undefined, 'the key itself is never shown again');
+  const drop = client();   // no session: the key is the only credential
+  const send = (k, raw = Buffer.from('not a video'), headers = {}) => drop('/api/drop', { method: 'POST', csrf: false, raw, headers: { ...(k ? { Authorization: k } : {}), 'Content-Type': 'video/quicktime', ...headers } });
+  r = await send(null);
+  assert.equal(r.status, 401); assert.match(r.text, /upload key/);
+  assert.equal((await send(`Bearer ${'A'.repeat(43)}`)).status, 401);
+  assert.equal((await drop('/api/sources', { headers: { Authorization: `Bearer ${key}` } })).status, 401, 'a key is not a session');
+  if (HAVE_FFMPEG) {
+    const f = path.join(dir, 'phone.mp4');
+    assert.equal(spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=30:duration=1', '-f', 'lavfi', '-i', 'sine=d=1',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-shortest', f]).status, 0);
+    const video = fs.readFileSync(f);
+    r = await send(`Bearer ${key}`, video);
+    assert.equal(r.status, 201, r.text); assert.match(r.text, /^Uploaded Phone video\.mov to /);
+    r = await send(key, video, { 'X-Name': encodeURIComponent('Fun bit ✓') });   // "Bearer " is optional
+    assert.equal(r.status, 201, r.text);
+    const mine = (await robin('/api/sources')).json;
+    assert.deepEqual(mine.map((x) => x.name).sort(), ['Fun bit ✓.mov', 'Phone video.mov']);
+    assert.ok(mine.every((x) => x.ownerName === 'Robin'));
+    r = await send(key, Buffer.from('not a video at all'));
+    assert.equal(r.status, 400); assert.match(r.text, /^Not uploaded: could not read that video/);
+    const robinId = (await admin('/api/users')).json.users.find((u) => u.name === 'Robin').id;
+    await admin(`/api/users/${robinId}`, { method: 'PATCH', body: { quotaGB: 0 } });
+    r = await send(key, video);
+    assert.equal(r.status, 413); assert.match(r.text, /storage limit/);
+    await admin(`/api/users/${robinId}`, { method: 'PATCH', body: { quotaGB: 1 } });
+  }
+  r = await robin('/api/me/upload-key', { method: 'POST' });   // a new key replaces the old one
+  assert.equal((await send(key)).status, 401);
+  assert.equal((await send(r.json.key)).status, 400, 'the new key works (the body is just not a video)');
+  await robin('/api/me/upload-key', { method: 'DELETE' });
+  assert.equal((await send(r.json.key)).status, 401);
+  assert.equal((await robin('/api/me/upload-key')).json.key, null);
+});
+
+test('installable: manifest and icons', async () => {
+  const r = await anon('/manifest.webmanifest');
+  assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /manifest\+json/);
+  assert.equal(r.json.start_url, '/home'); assert.equal(r.json.display, 'standalone');
+  for (const i of r.json.icons) assert.equal((await fetch(BASE + i.src)).headers.get('content-type'), 'image/png');
+  const home = await anon('/home');
+  assert.match(home.text, /rel="manifest" href="\/manifest\.webmanifest"/);
+  assert.match(home.text, /rel="apple-touch-icon" href="\/static\/v-[a-f0-9]{10}\/apple-touch-icon\.png"/);
+});
+
 test('renaming: yourself, the admin renames anyone, names stay unique', async () => {
   let r = await alex('/api/me', { method: 'PATCH', body: { name: '  Alexander   the  Great ' } });
   assert.equal(r.status, 200, r.text); assert.equal(r.json.user.name, 'Alexander the Great');
