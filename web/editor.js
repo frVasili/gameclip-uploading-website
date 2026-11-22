@@ -49,22 +49,56 @@ function applyGains() {
   if (!actx) return;
   tracks.forEach((t, i) => { const e = edit.tracks[i]; t.gain.gain.value = e.muted ? 0 : e.volume; });
 }
+// Keeping them in line: seeking an <audio> is instant on desktop browsers but takes a moment on iPhones, so there a
+// seek left the audio behind again, the next check seeked again, and the sound kept jumping back and repeating.
+// So small drift is evened out by playing the audio a little faster or slower, a seek is the last resort (aimed
+// ahead by the delay the last one had, and never repeated before it settled), and when the video stalls the
+// audio waits for it instead of running ahead.
+const NUDGE_MAX = 0.05;     // play the audio at most 5% faster/slower (pitch is kept)
+const SEEK_DRIFT = 0.35;    // seconds off before seeking instead
+const SEEK_SETTLE = 1500;   // ms after a seek before checking again
+let lastVideoT = -1, audioSeeks = 0;
+function seekTrack(t, to) {
+  t.el.currentTime = to; audioSeeks++;
+  t.seekedAt = performance.now(); t.checkLead = !video.paused;
+}
+function resume(t) {   // start a paused track where the video is
+  const ahead = t.el.currentTime - video.currentTime;
+  if (ahead > 0.02 && ahead < SEEK_DRIFT) return;   // ahead after a stall: wait for the video (seeking back repeats it)
+  if (Math.abs(ahead) > 0.05) seekTrack(t, video.currentTime + (t.lead || 0));
+  t.el.playbackRate = video.playbackRate;
+  t.el.play().catch(() => {});
+}
 function syncAudio(play) {
   for (const t of tracks) {
-    if (Math.abs(t.el.currentTime - video.currentTime) > 0.03) t.el.currentTime = video.currentTime;
-    t.el.playbackRate = video.playbackRate;
-    if (play && actx) t.el.play().catch(() => {}); else if (!play) t.el.pause();
+    const off = Math.abs(t.el.currentTime - video.currentTime) > 0.05;
+    if (!play) { t.el.pause(); if (off) seekTrack(t, video.currentTime); }
+    else if (!actx) continue;
+    else if (t.el.paused) resume(t);
+    else { if (off) seekTrack(t, video.currentTime + (t.lead || 0)); t.el.playbackRate = video.playbackRate; }
   }
 }
-video.addEventListener('playing', () => syncAudio(true));
-video.addEventListener('play', () => syncAudio(true));
+video.addEventListener('playing', () => syncAudio(true));   // not on 'play': the video may still be loading then
 video.addEventListener('pause', () => syncAudio(false));
 video.addEventListener('waiting', () => tracks.forEach((t) => t.el.pause()));
 video.addEventListener('seeked', () => syncAudio(!video.paused));
 video.addEventListener('ratechange', () => syncAudio(!video.paused));
-setInterval(() => {   // drift correction
-  if (video.paused || video.seeking) return;
-  for (const t of tracks) if (!t.el.paused && Math.abs(t.el.currentTime - video.currentTime) > 0.08) t.el.currentTime = video.currentTime;
+setInterval(() => {
+  if (video.paused || video.seeking || !actx) { lastVideoT = -1; return; }
+  const vt = video.currentTime, moving = lastVideoT >= 0 && vt > lastVideoT;
+  const first = lastVideoT < 0; lastVideoT = vt;
+  if (first) return;
+  for (const t of tracks) {
+    if (t.el.readyState < 1 || vt >= t.el.duration - 0.1) continue;   // loading, or past the end of this track
+    if (!moving || video.readyState < 3) { t.el.pause(); continue; }    // the video stalled (iPhones don't always say so)
+    if (t.el.paused) { resume(t); continue; }
+    if (t.el.seeking || performance.now() - (t.seekedAt || 0) < SEEK_SETTLE) continue;
+    const drift = t.el.currentTime - vt;   // > 0: the audio is ahead
+    if (t.checkLead) { t.checkLead = false; t.lead = Math.min(0.8, Math.max(0, (t.lead || 0) - drift)); }
+    if (Math.abs(drift) > SEEK_DRIFT) { seekTrack(t, vt + (t.lead || 0)); t.el.playbackRate = video.playbackRate; continue; }
+    const nudge = Math.abs(drift) < 0.015 ? 0 : Math.max(-NUDGE_MAX, Math.min(NUDGE_MAX, -drift / 2));   // catch up in ~2 s
+    t.el.playbackRate = video.playbackRate * (1 + nudge);
+  }
 }, 250);
 
 // ======================= playback =======================
@@ -681,4 +715,4 @@ load().catch(showError);
 // for troubleshooting from the browser console: clipsDebug()
 window.clipsDebug = () => ({ video: video.currentTime, paused: video.paused, ctx: actx?.state,
   tracks: tracks.map((t, i) => ({ time: t.el.currentTime, paused: t.el.paused, gain: t.gain?.gain.value, drift: +(t.el.currentTime - video.currentTime).toFixed(3) })),
-  master: master?.gain.value, edit });
+  master: master?.gain.value, audioSeeks, edit });
